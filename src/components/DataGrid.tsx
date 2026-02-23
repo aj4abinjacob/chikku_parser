@@ -1,12 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@blueprintjs/core";
 
-interface CellKey {
-  row: number;
-  col: string;
-}
-
-function cellKeyStr(row: number, col: string): string {
+function cellKey(row: number, col: string): string {
   return `${row}:${col}`;
 }
 
@@ -25,77 +20,64 @@ export function DataGrid({
   sortDirection,
   onSort,
 }: DataGridProps): React.ReactElement {
-  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
-  const lastClickedCell = useRef<CellKey | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const anchor = useRef<{ row: number; col: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleCellClick = useCallback(
     (rowIdx: number, col: string, e: React.MouseEvent) => {
-      const key = cellKeyStr(rowIdx, col);
-      const metaKey = e.metaKey || e.ctrlKey;
+      const meta = e.metaKey || e.ctrlKey;
 
-      if (e.shiftKey && lastClickedCell.current) {
-        // Range selection from last clicked cell to current
-        const startRow = Math.min(lastClickedCell.current.row, rowIdx);
-        const endRow = Math.max(lastClickedCell.current.row, rowIdx);
-        const startColIdx = Math.min(
-          columns.indexOf(lastClickedCell.current.col),
-          columns.indexOf(col)
-        );
-        const endColIdx = Math.max(
-          columns.indexOf(lastClickedCell.current.col),
-          columns.indexOf(col)
-        );
+      if (e.shiftKey && anchor.current) {
+        // Range select
+        const r0 = Math.min(anchor.current.row, rowIdx);
+        const r1 = Math.max(anchor.current.row, rowIdx);
+        const c0 = Math.min(columns.indexOf(anchor.current.col), columns.indexOf(col));
+        const c1 = Math.max(columns.indexOf(anchor.current.col), columns.indexOf(col));
 
-        const newSelection = metaKey ? new Set(selectedCells) : new Set<string>();
-        for (let r = startRow; r <= endRow; r++) {
-          for (let c = startColIdx; c <= endColIdx; c++) {
-            newSelection.add(cellKeyStr(r, columns[c]));
+        const next = meta ? new Set(selected) : new Set<string>();
+        for (let r = r0; r <= r1; r++) {
+          for (let c = c0; c <= c1; c++) {
+            next.add(cellKey(r, columns[c]));
           }
         }
-        setSelectedCells(newSelection);
-      } else if (metaKey) {
-        // Toggle individual cell
-        const next = new Set(selectedCells);
-        if (next.has(key)) {
-          next.delete(key);
-        } else {
-          next.add(key);
-        }
-        setSelectedCells(next);
-        lastClickedCell.current = { row: rowIdx, col };
+        setSelected(next);
+      } else if (meta) {
+        // Toggle cell
+        const next = new Set(selected);
+        const k = cellKey(rowIdx, col);
+        if (next.has(k)) next.delete(k);
+        else next.add(k);
+        setSelected(next);
+        anchor.current = { row: rowIdx, col };
       } else {
-        // Single cell select
-        setSelectedCells(new Set([key]));
-        lastClickedCell.current = { row: rowIdx, col };
+        // Single select
+        setSelected(new Set([cellKey(rowIdx, col)]));
+        anchor.current = { row: rowIdx, col };
       }
     },
-    [columns, selectedCells]
+    [columns, selected]
   );
 
-  // Copy handler
+  // Cmd/Ctrl+C copy
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "c" && selectedCells.size > 0) {
-        // Parse selected keys and build a grid of values
-        const parsed: CellKey[] = [];
-        selectedCells.forEach((k) => {
-          const sep = k.indexOf(":");
-          parsed.push({ row: Number(k.slice(0, sep)), col: k.slice(sep + 1) });
+      if ((e.metaKey || e.ctrlKey) && e.key === "c" && selected.size > 0) {
+        const parsed = [...selected].map((k) => {
+          const i = k.indexOf(":");
+          return { row: Number(k.slice(0, i)), col: k.slice(i + 1) };
         });
 
-        const rowSet = [...new Set(parsed.map((p) => p.row))].sort((a, b) => a - b);
-        const colSet = columns.filter((c) => parsed.some((p) => p.col === c));
+        const rowNums = [...new Set(parsed.map((p) => p.row))].sort((a, b) => a - b);
+        const colNames = columns.filter((c) => parsed.some((p) => p.col === c));
 
-        const text = rowSet
+        const text = rowNums
           .map((r) =>
-            colSet
-              .map((c) => {
-                if (selectedCells.has(cellKeyStr(r, c))) {
-                  return formatCell(rows[r]?.[c]);
-                }
-                return "";
-              })
+            colNames
+              .map((c) => (selected.has(cellKey(r, c)) ? formatCell(rows[r]?.[c]) : ""))
               .join("\t")
           )
           .join("\n");
@@ -105,12 +87,9 @@ export function DataGrid({
       }
     };
 
-    const container = containerRef.current;
-    if (container) {
-      container.addEventListener("keydown", handler);
-      return () => container.removeEventListener("keydown", handler);
-    }
-  }, [selectedCells, rows, columns]);
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  }, [selected, rows, columns]);
 
   if (columns.length === 0 || rows.length === 0) {
     return (
@@ -151,7 +130,7 @@ export function DataGrid({
                 <td
                   key={col}
                   title={String(row[col] ?? "")}
-                  className={selectedCells.has(cellKeyStr(rowIdx, col)) ? "cell-selected" : ""}
+                  className={selected.has(cellKey(rowIdx, col)) ? "cell-selected" : ""}
                   onClick={(e) => handleCellClick(rowIdx, col, e)}
                 >
                   {formatCell(row[col])}

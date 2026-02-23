@@ -154,14 +154,22 @@ html, body, #root {
     transition: background 0.15s ease;
   }
 
-  tbody tr:hover td {
-    background: rgba(19, 124, 189, 0.06);
+  tbody {
+    user-select: none;
+  }
+
+  td {
+    cursor: default;
   }
 
   td.cell-selected {
     background: rgba(19, 124, 189, 0.15);
     outline: 1px solid rgba(19, 124, 189, 0.4);
     outline-offset: -1px;
+  }
+
+  tbody tr:hover td {
+    background: rgba(19, 124, 189, 0.06);
   }
 
   tbody tr:hover td.cell-selected {
