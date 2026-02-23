@@ -289,7 +289,7 @@ html, body, #root {
 }
 
 .filter-panel-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   color: #5c7080;
@@ -317,6 +317,7 @@ html, body, #root {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  font-size: 14px;
 
   .filter-col-select {
     width: 160px;
@@ -331,6 +332,21 @@ html, body, #root {
   .filter-value-input {
     width: 200px;
     flex-shrink: 0;
+
+    // Match HTMLSelect appearance
+    .bp4-input {
+      box-shadow: none;
+      border: 1px solid rgba(17, 20, 24, 0.2);
+      background: linear-gradient(180deg, hsla(0, 0%, 100%, 0.8), hsla(0, 0%, 100%, 0.0));
+      height: 24px;
+      padding: 0 8px;
+      font-size: 13px;
+
+      &:focus {
+        box-shadow: 0 0 0 1px #137cbd, 0 0 0 3px rgba(19, 124, 189, 0.15);
+        border-color: #137cbd;
+      }
+    }
   }
 
   .filter-value-btn {
@@ -345,6 +361,10 @@ html, body, #root {
   display: flex;
   justify-content: flex-end;
   flex-shrink: 0;
+
+  .bp4-button {
+    border-radius: 12px;
+  }
 }
 
 // ── IN value picker ──
