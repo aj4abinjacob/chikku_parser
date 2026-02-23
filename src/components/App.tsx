@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Intent } from "@blueprintjs/core";
+import { Button } from "@blueprintjs/core";
 import { LoadedTable, ViewState, ColumnInfo } from "../types";
-import { Toolbar } from "./Toolbar";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { StatusBar } from "./StatusBar";
@@ -20,6 +19,7 @@ function makeTableName(filePath: string): string {
 export function App(): React.ReactElement {
   const [tables, setTables] = useState<LoadedTable[]>([]);
   const [activeTable, setActiveTable] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const [schema, setSchema] = useState<ColumnInfo[]>([]);
   const [rows, setRows] = useState<any[]>([]);
   const [totalRows, setTotalRows] = useState(0);
@@ -202,26 +202,33 @@ export function App(): React.ReactElement {
 
   return (
     <div className="app-container">
-      <Toolbar
-        hasData={hasData}
-        tableCount={tables.length}
-        onCombine={handleCombine}
-        activeTable={activeTable}
-        onColumnOperation={handleColumnOperation}
-        schema={schema}
-      />
       <div className="main-layout">
-        <Sidebar
-          tables={tables}
-          activeTable={activeTable}
-          schema={schema}
-          visibleColumns={viewState.visibleColumns}
-          onSelectTable={(name) => {
-            setActiveTable(name);
-            setViewState((prev) => ({ ...prev, visibleColumns: [], offset: 0 }));
-          }}
-          onToggleColumn={toggleColumn}
-        />
+        {sidebarVisible ? (
+          <Sidebar
+            tables={tables}
+            activeTable={activeTable}
+            schema={schema}
+            visibleColumns={viewState.visibleColumns}
+            onSelectTable={(name) => {
+              setActiveTable(name);
+              setViewState((prev) => ({ ...prev, visibleColumns: [], offset: 0 }));
+            }}
+            onToggleColumn={toggleColumn}
+            onColumnOperation={handleColumnOperation}
+            onCombine={handleCombine}
+            onHide={() => setSidebarVisible(false)}
+          />
+        ) : (
+          <div className="sidebar-collapsed">
+            <Button
+              icon="chevron-right"
+              minimal
+              small
+              onClick={() => setSidebarVisible(true)}
+              title="Show sidebar"
+            />
+          </div>
+        )}
         <div className="data-area">
           {hasData ? (
             <DataGrid

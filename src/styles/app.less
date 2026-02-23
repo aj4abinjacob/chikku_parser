@@ -4,7 +4,6 @@
 
 :root {
   --sidebar-width: 280px;
-  --toolbar-height: 40px;
   --statusbar-height: 28px;
 }
 
@@ -24,23 +23,24 @@ html, body, #root {
   width: 100vw;
 }
 
-// ── Toolbar ──
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  height: var(--toolbar-height);
-  background: #fff;
-  border-bottom: 1px solid #d8e1e8;
-  flex-shrink: 0;
-}
-
 // ── Main layout: sidebar + data grid ──
 .main-layout {
   display: flex;
   flex: 1;
   overflow: hidden;
+}
+
+// ── Sidebar collapsed strip ──
+.sidebar-collapsed {
+  width: 36px;
+  min-width: 36px;
+  background: #fff;
+  border-right: 1px solid #d8e1e8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 6px;
+  flex-shrink: 0;
 }
 
 // ── Sidebar ──
@@ -64,6 +64,21 @@ html, body, #root {
       color: #5c7080;
       letter-spacing: 0.5px;
     }
+  }
+
+  .sidebar-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+
+    h4 {
+      margin: 0;
+    }
+  }
+
+  .sidebar-actions-inline {
+    padding: 6px 12px;
   }
 
   .table-list-item {
@@ -98,6 +113,12 @@ html, body, #root {
       color: #5c7080;
       font-size: 11px;
     }
+  }
+
+  .sidebar-actions {
+    margin-top: auto;
+    border-bottom: none;
+    border-top: 1px solid #e1e8ed;
   }
 }
 
