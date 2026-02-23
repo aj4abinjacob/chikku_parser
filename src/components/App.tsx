@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Intent } from "@blueprintjs/core";
 import { LoadedTable, ViewState, ColumnInfo } from "../types";
 import { Toolbar } from "./Toolbar";
@@ -6,14 +6,15 @@ import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { StatusBar } from "./StatusBar";
 import { buildSelectQuery, buildCombineQuery, buildCountQuery } from "../utils/sqlBuilder";
-import path from "path";
 
 const DEFAULT_PAGE_SIZE = 500;
 
 function makeTableName(filePath: string): string {
-  return path
-    .basename(filePath, path.extname(filePath))
-    .replace(/[^a-zA-Z0-9_]/g, "_");
+  // Extract filename without extension using pure string ops (no Node path module)
+  const name = filePath.split(/[/\\]/).pop() || "table";
+  const dotIdx = name.lastIndexOf(".");
+  const base = dotIdx > 0 ? name.substring(0, dotIdx) : name;
+  return base.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
 export function App(): React.ReactElement {
@@ -31,10 +32,16 @@ export function App(): React.ReactElement {
     offset: 0,
   });
 
+  // Use refs so IPC callbacks always see latest state
+  const tablesRef = useRef(tables);
+  tablesRef.current = tables;
+  const activeTableRef = useRef(activeTable);
+  activeTableRef.current = activeTable;
+
   // Load CSV files into DuckDB
   const loadFiles = useCallback(
     async (filePaths: string[], replace: boolean) => {
-      const newTables: LoadedTable[] = replace ? [] : [...tables];
+      const newTables: LoadedTable[] = replace ? [] : [...tablesRef.current];
 
       for (const fp of filePaths) {
         const tableName = makeTableName(fp);
@@ -54,28 +61,31 @@ export function App(): React.ReactElement {
       setTables(newTables);
 
       if (newTables.length > 0) {
-        const first = newTables[0].tableName;
-        setActiveTable(first);
+        setActiveTable(newTables[0].tableName);
+        // Reset view state so columns get auto-populated on next render
+        setViewState((prev) => ({ ...prev, visibleColumns: [], offset: 0 }));
       }
     },
-    [tables]
+    [] // stable — uses refs for latest state
   );
 
-  // Listen for menu events from main process
+  // Register IPC listeners once on mount
   useEffect(() => {
     window.api.onOpenFiles((filePaths) => loadFiles(filePaths, true));
     window.api.onAddFiles((filePaths) => loadFiles(filePaths, false));
     window.api.onExportCSV(async () => {
-      if (!activeTable) return;
+      const at = activeTableRef.current;
+      const t = tablesRef.current;
+      if (!at) return;
       const savePath = await window.api.saveDialog();
       if (!savePath) return;
       const sql =
-        tables.length > 1
-          ? buildCombineQuery(tables.map((t) => t.tableName))
-          : `SELECT * FROM "${activeTable}"`;
+        t.length > 1
+          ? buildCombineQuery(t.map((tb) => tb.tableName))
+          : `SELECT * FROM "${at}"`;
       await window.api.exportCSV(sql, savePath);
     });
-  }, [loadFiles, activeTable, tables]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When active table or view state changes, refresh data
   useEffect(() => {
@@ -87,19 +97,21 @@ export function App(): React.ReactElement {
         const desc = await window.api.describe(activeTable);
         setSchema(desc);
 
-        // If no visible columns set, show all
-        const vs =
-          viewState.visibleColumns.length > 0
-            ? viewState
-            : { ...viewState, visibleColumns: desc.map((c: ColumnInfo) => c.column_name) };
+        // If no visible columns set, show all and update state
+        if (viewState.visibleColumns.length === 0) {
+          const allCols = desc.map((c: ColumnInfo) => c.column_name);
+          setViewState((prev) => ({ ...prev, visibleColumns: allCols }));
+          // Don't query yet — the state update will re-trigger this effect
+          return;
+        }
 
         // Get total count (for pagination)
-        const countSql = buildCountQuery(activeTable, vs.filters);
+        const countSql = buildCountQuery(activeTable, viewState.filters);
         const countResult = await window.api.query(countSql);
-        setTotalRows(countResult[0]?.total ?? 0);
+        setTotalRows(Number(countResult[0]?.total ?? 0));
 
         // Get page of data
-        const dataSql = buildSelectQuery(activeTable, vs);
+        const dataSql = buildSelectQuery(activeTable, viewState);
         const dataRows = await window.api.query(dataSql);
         setRows(dataRows);
       } catch (err) {
@@ -126,15 +138,15 @@ export function App(): React.ReactElement {
         tableName: "combined",
         filePath: "(combined)",
         schema: desc,
-        rowCount: countResult[0].count,
+        rowCount: Number(countResult[0].count),
       };
 
-      // Add combined table if not already present
       setTables((prev) => {
         const without = prev.filter((t) => t.tableName !== "combined");
         return [...without, combinedTable];
       });
       setActiveTable("combined");
+      setViewState((prev) => ({ ...prev, visibleColumns: [], offset: 0 }));
     } catch (err) {
       console.error("Combine error:", err);
     }
@@ -204,7 +216,10 @@ export function App(): React.ReactElement {
           activeTable={activeTable}
           schema={schema}
           visibleColumns={viewState.visibleColumns}
-          onSelectTable={setActiveTable}
+          onSelectTable={(name) => {
+            setActiveTable(name);
+            setViewState((prev) => ({ ...prev, visibleColumns: [], offset: 0 }));
+          }}
           onToggleColumn={toggleColumn}
         />
         <div className="data-area">

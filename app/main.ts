@@ -157,7 +157,7 @@ ipcMain.handle(
                   resolve({
                     tableName: safeTable,
                     schema,
-                    rowCount: countResult[0].count,
+                    rowCount: Number(countResult[0].count),
                   });
                 }
               );
