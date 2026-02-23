@@ -157,6 +157,16 @@ html, body, #root {
   tbody tr:hover td {
     background: rgba(19, 124, 189, 0.06);
   }
+
+  td.cell-selected {
+    background: rgba(19, 124, 189, 0.15);
+    outline: 1px solid rgba(19, 124, 189, 0.4);
+    outline-offset: -1px;
+  }
+
+  tbody tr:hover td.cell-selected {
+    background: rgba(19, 124, 189, 0.2);
+  }
 }
 
 // ── Status bar ──
