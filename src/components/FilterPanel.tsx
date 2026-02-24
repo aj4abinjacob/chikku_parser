@@ -29,7 +29,7 @@ const NO_VALUE_OPS = new Set(["IS NULL", "IS NOT NULL"]);
 
 const MIN_PANEL_HEIGHT = 80;
 const MAX_PANEL_HEIGHT = 500;
-const DEFAULT_PANEL_HEIGHT = 220;
+const DEFAULT_PANEL_HEIGHT = 260;
 
 interface DraftFilter {
   column: string;
