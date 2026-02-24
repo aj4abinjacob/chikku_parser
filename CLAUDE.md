@@ -142,7 +142,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### FilterPanel.tsx — Resizable Bottom Panel
 - Resizable via drag handle (min 80px, max 500px, default 260px)
 - Add/remove filter rows, Clear All, Apply Filters
-- Filter operators: `=`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `NOT LIKE`, `IS NULL`, `IS NOT NULL`, `CONTAINS`, `IN`
+- Filter operators: `=`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `NOT LIKE`, `IS NULL`, `IS NOT NULL`, `CONTAINS`, `IN`, `STARTS WITH`, `NOT STARTS WITH`, `ENDS WITH`, `NOT ENDS WITH`
 - `CONTAINS` uses `regexp_matches()` (case-insensitive)
 - `IN` operator uses InValuePicker sub-component:
   - Fetches up to 1000 distinct values from the column
