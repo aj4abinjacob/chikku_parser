@@ -28,12 +28,6 @@ export function buildSelectQuery(
     sql += ` ORDER BY "${viewState.sortColumn}" ${viewState.sortDirection}`;
   }
 
-  // LIMIT / OFFSET
-  sql += ` LIMIT ${viewState.limit}`;
-  if (viewState.offset > 0) {
-    sql += ` OFFSET ${viewState.offset}`;
-  }
-
   return sql;
 }
 
@@ -110,7 +104,39 @@ export function buildMappedCombineQuery(
 }
 
 /**
- * Build a query for count (used for pagination).
+ * Build a query for a specific chunk of data (used by virtual scroll).
+ */
+export function buildChunkQuery(
+  tableName: string,
+  visibleColumns: string[],
+  filters: FilterCondition[],
+  sortColumn: string | null,
+  sortDirection: "ASC" | "DESC",
+  chunkSize: number,
+  chunkIndex: number
+): string {
+  const columns =
+    visibleColumns.length > 0
+      ? visibleColumns.map((c) => `"${c}"`).join(", ")
+      : "*";
+
+  let sql = `SELECT ${columns} FROM "${tableName}"`;
+
+  const whereClauses = filters.map((f) => buildFilterClause(f)).filter(Boolean);
+  if (whereClauses.length > 0) {
+    sql += ` WHERE ${whereClauses.join(" AND ")}`;
+  }
+
+  if (sortColumn) {
+    sql += ` ORDER BY "${sortColumn}" ${sortDirection}`;
+  }
+
+  sql += ` LIMIT ${chunkSize} OFFSET ${chunkIndex * chunkSize}`;
+  return sql;
+}
+
+/**
+ * Build a query for count.
  */
 export function buildCountQuery(
   tableName: string,

@@ -47,6 +47,4 @@ export interface ViewState {
   filters: FilterCondition[];
   sortColumn: string | null;
   sortDirection: "ASC" | "DESC";
-  limit: number;
-  offset: number;
 }

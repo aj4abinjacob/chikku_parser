@@ -35,6 +35,7 @@
     "@blueprintjs/core": "^4.20.2",
     "@blueprintjs/icons": "^4.16.0",
     "@blueprintjs/popover2": "^1.14.1",
+    "@tanstack/react-virtual": "^3.13.19",
     "duckdb": "^1.1.0",
     "electron-log": "^4.4.8",
     "lodash": "^4.17.21",

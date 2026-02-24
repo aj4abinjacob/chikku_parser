@@ -1,30 +1,40 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@blueprintjs/core";
+import { useVirtualizer } from "@tanstack/react-virtual";
+
+const ROW_HEIGHT = 28;
 
 function cellKey(row: number, col: string): string {
   return `${row}:${col}`;
 }
 
 interface DataGridProps {
-  rows: any[];
+  totalRows: number;
+  getRow: (absoluteIndex: number) => any | null;
+  ensureRange: (startIndex: number, endIndex: number) => void;
   columns: string[];
   sortColumn: string | null;
   sortDirection: "ASC" | "DESC";
   onSort: (column: string) => void;
   onReorderColumns?: (newOrder: string[]) => void;
+  resetKey: number;
 }
 
 export function DataGrid({
-  rows,
+  totalRows,
+  getRow,
+  ensureRange,
   columns,
   sortColumn,
   sortDirection,
   onSort,
   onReorderColumns,
+  resetKey,
 }: DataGridProps): React.ReactElement {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<{ row: number; col: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── Column resize state ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -36,7 +46,44 @@ export function DataGrid({
   // ── Header drag-reorder state ──
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
   const headerDragCol = useRef<string | null>(null);
-  const [headerDropTarget, setHeaderDropTarget] = useState<{ col: string; position: "left" | "right" } | null>(null);
+  const [headerDropTarget, setHeaderDropTarget] = useState<{
+    col: string;
+    position: "left" | "right";
+  } | null>(null);
+
+  // Virtualizer
+  const virtualizer = useVirtualizer({
+    count: totalRows,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  // Notify chunk cache of visible range
+  const rangeRef = useRef<{ start: number; end: number } | null>(null);
+  useEffect(() => {
+    const range = virtualizer.range;
+    if (!range) return;
+    const { startIndex, endIndex } = range;
+    if (
+      rangeRef.current &&
+      rangeRef.current.start === startIndex &&
+      rangeRef.current.end === endIndex
+    ) {
+      return;
+    }
+    rangeRef.current = { start: startIndex, end: endIndex };
+    ensureRange(startIndex, endIndex);
+  });
+
+  // Scroll to top when resetKey changes
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+    setSelected(new Set());
+    anchor.current = null;
+  }, [resetKey]);
 
   // Calculate initial column widths when columns change
   useEffect(() => {
@@ -51,6 +98,10 @@ export function DataGrid({
     }
     setColumnWidths(widths);
   }, [columns]);
+
+  // Total width of all columns for horizontal scroll
+  const totalWidth =
+    50 + columns.reduce((sum, col) => sum + (columnWidths[col] ?? 150), 0);
 
   // Document-level drag listeners for column resize
   useEffect(() => {
@@ -83,7 +134,6 @@ export function DataGrid({
   // ── Header drag-reorder handlers ──
   const handleHeaderDragStart = useCallback(
     (e: React.DragEvent, col: string) => {
-      // Don't start header drag if a resize is active
       if (isDragging.current) {
         e.preventDefault();
         return;
@@ -161,11 +211,16 @@ export function DataGrid({
       const meta = e.metaKey || e.ctrlKey;
 
       if (e.shiftKey && anchor.current) {
-        // Range select
         const r0 = Math.min(anchor.current.row, rowIdx);
         const r1 = Math.max(anchor.current.row, rowIdx);
-        const c0 = Math.min(columns.indexOf(anchor.current.col), columns.indexOf(col));
-        const c1 = Math.max(columns.indexOf(anchor.current.col), columns.indexOf(col));
+        const c0 = Math.min(
+          columns.indexOf(anchor.current.col),
+          columns.indexOf(col)
+        );
+        const c1 = Math.max(
+          columns.indexOf(anchor.current.col),
+          columns.indexOf(col)
+        );
 
         const next = meta ? new Set(selected) : new Set<string>();
         for (let r = r0; r <= r1; r++) {
@@ -175,7 +230,6 @@ export function DataGrid({
         }
         setSelected(next);
       } else if (meta) {
-        // Toggle cell
         const next = new Set(selected);
         const k = cellKey(rowIdx, col);
         if (next.has(k)) next.delete(k);
@@ -183,7 +237,6 @@ export function DataGrid({
         setSelected(next);
         anchor.current = { row: rowIdx, col };
       } else {
-        // Single select
         setSelected(new Set([cellKey(rowIdx, col)]));
         anchor.current = { row: rowIdx, col };
       }
@@ -191,7 +244,7 @@ export function DataGrid({
     [columns, selected]
   );
 
-  // Cmd/Ctrl+C copy
+  // Cmd/Ctrl+C copy — uses getRow instead of rows array
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -203,15 +256,22 @@ export function DataGrid({
           return { row: Number(k.slice(0, i)), col: k.slice(i + 1) };
         });
 
-        const rowNums = [...new Set(parsed.map((p) => p.row))].sort((a, b) => a - b);
-        const colNames = columns.filter((c) => parsed.some((p) => p.col === c));
+        const rowNums = [...new Set(parsed.map((p) => p.row))].sort(
+          (a, b) => a - b
+        );
+        const colNames = columns.filter((c) =>
+          parsed.some((p) => p.col === c)
+        );
 
         const text = rowNums
-          .map((r) =>
-            colNames
-              .map((c) => (selected.has(cellKey(r, c)) ? formatCell(rows[r]?.[c]) : ""))
-              .join("\t")
-          )
+          .map((r) => {
+            const row = getRow(r);
+            return colNames
+              .map((c) =>
+                selected.has(cellKey(r, c)) ? formatCell(row?.[c]) : ""
+              )
+              .join("\t");
+          })
           .join("\n");
 
         e.preventDefault();
@@ -221,9 +281,9 @@ export function DataGrid({
 
     el.addEventListener("keydown", handler);
     return () => el.removeEventListener("keydown", handler);
-  }, [selected, rows, columns]);
+  }, [selected, getRow, columns]);
 
-  if (columns.length === 0 || rows.length === 0) {
+  if (columns.length === 0 || totalRows === 0) {
     return (
       <div className="welcome">
         <p>No data to display</p>
@@ -231,25 +291,28 @@ export function DataGrid({
     );
   }
 
+  const virtualRows = virtualizer.getVirtualItems();
+
   return (
     <div className="data-grid-container" ref={containerRef} tabIndex={-1}>
-      <table className="data-table">
-        <colgroup>
-          <col style={{ width: 50 }} />
-          {columns.map((col) => (
-            <col key={col} style={{ width: columnWidths[col] ?? 150 }} />
-          ))}
-        </colgroup>
-        <thead>
-          <tr>
-            <th style={{ textAlign: "right", color: "#5c7080" }}>#</th>
+      <div className="data-grid-scroll" ref={scrollRef}>
+        <div style={{ width: totalWidth, minWidth: "100%" }}>
+          {/* Sticky header */}
+          <div className="dg-header">
+            <div className="dg-cell dg-row-num-cell dg-header-num">#</div>
             {columns.map((col) => (
-              <th
+              <div
                 key={col}
                 className={[
+                  "dg-cell dg-header-cell",
                   draggingColumn === col ? "column-dragging" : "",
-                  headerDropTarget?.col === col ? `header-drop-${headerDropTarget.position}` : "",
-                ].filter(Boolean).join(" ") || undefined}
+                  headerDropTarget?.col === col
+                    ? `header-drop-${headerDropTarget.position}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ width: columnWidths[col] ?? 150 }}
                 draggable={!!onReorderColumns}
                 onClick={() => onSort(col)}
                 onDragStart={(e) => handleHeaderDragStart(e, col)}
@@ -258,11 +321,13 @@ export function DataGrid({
                 onDrop={handleHeaderDrop}
                 onDragEnd={handleHeaderDragEnd}
               >
-                {col}
+                <span className="dg-header-text">{col}</span>
                 {sortColumn === col && (
                   <span className="sort-indicator">
                     <Icon
-                      icon={sortDirection === "ASC" ? "chevron-up" : "chevron-down"}
+                      icon={
+                        sortDirection === "ASC" ? "chevron-up" : "chevron-down"
+                      }
                       size={12}
                     />
                   </span>
@@ -271,33 +336,63 @@ export function DataGrid({
                   className="col-resize-handle"
                   onMouseDown={(e) => handleResizeStart(e, col)}
                 />
-              </th>
+              </div>
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIdx) => (
-            <tr key={rowIdx}>
-              <td style={{ textAlign: "right", color: "#5c7080", fontSize: 11 }}>
-                {rowIdx + 1}
-              </td>
-              {columns.map((col) => (
-                <td
-                  key={col}
-                  title={String(row[col] ?? "")}
-                  className={[
-                    selected.has(cellKey(rowIdx, col)) ? "cell-selected" : "",
-                    draggingColumn === col ? "column-dragging" : "",
-                  ].filter(Boolean).join(" ") || undefined}
-                  onClick={(e) => handleCellClick(rowIdx, col, e)}
+          </div>
+
+          {/* Virtual rows */}
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              position: "relative",
+            }}
+          >
+            {virtualRows.map((virtualRow) => {
+              const row = getRow(virtualRow.index);
+              const loaded = row !== null;
+              return (
+                <div
+                  key={virtualRow.index}
+                  className="dg-row"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    transform: `translateY(${virtualRow.start}px)`,
+                    width: "100%",
+                    height: ROW_HEIGHT,
+                  }}
                 >
-                  {formatCell(row[col])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  <div className="dg-cell dg-row-num-cell">
+                    {virtualRow.index + 1}
+                  </div>
+                  {columns.map((col) => (
+                    <div
+                      key={col}
+                      className={[
+                        "dg-cell",
+                        selected.has(cellKey(virtualRow.index, col))
+                          ? "cell-selected"
+                          : "",
+                        draggingColumn === col ? "column-dragging" : "",
+                        !loaded ? "loading-cell" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      style={{ width: columnWidths[col] ?? 150 }}
+                      title={loaded ? String(row[col] ?? "") : ""}
+                      onClick={(e) =>
+                        handleCellClick(virtualRow.index, col, e)
+                      }
+                    >
+                      {loaded ? formatCell(row[col]) : "..."}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

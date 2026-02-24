@@ -6,12 +6,10 @@ import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
 import { StatusBar } from "./StatusBar";
 import { CombineDialog } from "./CombineDialog";
-import { buildSelectQuery, buildCombineQuery, buildCountQuery } from "../utils/sqlBuilder";
-
-const DEFAULT_PAGE_SIZE = 500;
+import { buildCombineQuery } from "../utils/sqlBuilder";
+import { useChunkCache } from "../hooks/useChunkCache";
 
 function makeTableName(filePath: string): string {
-  // Extract filename without extension using pure string ops (no Node path module)
   const name = filePath.split(/[/\\]/).pop() || "table";
   const dotIdx = name.lastIndexOf(".");
   const base = dotIdx > 0 ? name.substring(0, dotIdx) : name;
@@ -25,16 +23,13 @@ export function App(): React.ReactElement {
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [combineDialogOpen, setCombineDialogOpen] = useState(false);
   const [schema, setSchema] = useState<ColumnInfo[]>([]);
-  const [rows, setRows] = useState<any[]>([]);
-  const [totalRows, setTotalRows] = useState(0);
+  const [resetKey, setResetKey] = useState(0);
   const [viewState, setViewState] = useState<ViewState>({
     visibleColumns: [],
     columnOrder: [],
     filters: [],
     sortColumn: null,
     sortDirection: "ASC",
-    limit: DEFAULT_PAGE_SIZE,
-    offset: 0,
   });
 
   // Use refs so IPC callbacks always see latest state
@@ -42,6 +37,13 @@ export function App(): React.ReactElement {
   tablesRef.current = tables;
   const activeTableRef = useRef(activeTable);
   activeTableRef.current = activeTable;
+
+  // Chunk cache for lazy-loaded virtual scrolling
+  const { totalRows, getRow, ensureRange } = useChunkCache({
+    tableName: activeTable,
+    viewState,
+    enabled: viewState.visibleColumns.length > 0,
+  });
 
   // Load CSV files into DuckDB
   const loadFiles = useCallback(
@@ -67,12 +69,12 @@ export function App(): React.ReactElement {
 
       if (newTables.length > 0) {
         setActiveTable(newTables[0].tableName);
-        // Reset view state so columns get auto-populated on next render
-        setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [], filters: [], offset: 0 }));
+        setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [], filters: [] }));
+        setResetKey((k) => k + 1);
         setFilterPanelOpen(false);
       }
     },
-    [] // stable — uses refs for latest state
+    []
   );
 
   // Register IPC listeners once on mount
@@ -93,40 +95,26 @@ export function App(): React.ReactElement {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When active table or view state changes, refresh data
+  // When active table changes, refresh schema
   useEffect(() => {
     if (!activeTable) return;
 
-    const fetchData = async () => {
+    const fetchSchema = async () => {
       try {
-        // Get schema for active table
         const desc = await window.api.describe(activeTable);
         setSchema(desc);
 
-        // If no visible columns set, show all and update state
         if (viewState.visibleColumns.length === 0) {
           const allCols = desc.map((c: ColumnInfo) => c.column_name);
           setViewState((prev) => ({ ...prev, visibleColumns: allCols, columnOrder: allCols }));
-          // Don't query yet — the state update will re-trigger this effect
-          return;
         }
-
-        // Get total count (for pagination)
-        const countSql = buildCountQuery(activeTable, viewState.filters);
-        const countResult = await window.api.query(countSql);
-        setTotalRows(Number(countResult[0]?.total ?? 0));
-
-        // Get page of data
-        const dataSql = buildSelectQuery(activeTable, viewState);
-        const dataRows = await window.api.query(dataSql);
-        setRows(dataRows);
       } catch (err) {
-        console.error("Query error:", err);
+        console.error("Schema fetch error:", err);
       }
     };
 
-    fetchData();
-  }, [activeTable, viewState]);
+    fetchSchema();
+  }, [activeTable, viewState.visibleColumns.length]);
 
   // Open the column mapping dialog
   const handleCombineOpen = useCallback(() => {
@@ -156,7 +144,8 @@ export function App(): React.ReactElement {
         return [...without, combinedTable];
       });
       setActiveTable("combined");
-      setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [], filters: [], offset: 0 }));
+      setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [], filters: [] }));
+      setResetKey((k) => k + 1);
       setCombineDialogOpen(false);
     } catch (err) {
       console.error("Combine error:", err);
@@ -170,8 +159,9 @@ export function App(): React.ReactElement {
         const visible = prev.visibleColumns.includes(colName)
           ? prev.visibleColumns.filter((c) => c !== colName)
           : [...prev.visibleColumns, colName];
-        return { ...prev, visibleColumns: visible, offset: 0 };
+        return { ...prev, visibleColumns: visible };
       });
+      setResetKey((k) => k + 1);
     },
     []
   );
@@ -182,8 +172,9 @@ export function App(): React.ReactElement {
       setViewState((prev) => {
         const visibleSet = new Set(prev.visibleColumns);
         const newVisible = newOrder.filter((col) => visibleSet.has(col));
-        return { ...prev, columnOrder: newOrder, visibleColumns: newVisible, offset: 0 };
+        return { ...prev, columnOrder: newOrder, visibleColumns: newVisible };
       });
+      setResetKey((k) => k + 1);
     },
     []
   );
@@ -192,10 +183,7 @@ export function App(): React.ReactElement {
   const reorderVisibleColumns = useCallback(
     (newVisible: string[]) => {
       setViewState((prev) => {
-        // Rebuild columnOrder: place visible columns in their new order,
-        // keep hidden columns in their previous relative positions
         const visibleSet = new Set(newVisible);
-        // Interleave: walk through old columnOrder, replacing visible slots with new order
         const newColumnOrder: string[] = [];
         let vi = 0;
         for (const col of prev.columnOrder) {
@@ -205,8 +193,9 @@ export function App(): React.ReactElement {
             newColumnOrder.push(col);
           }
         }
-        return { ...prev, columnOrder: newColumnOrder, visibleColumns: newVisible, offset: 0 };
+        return { ...prev, columnOrder: newColumnOrder, visibleColumns: newVisible };
       });
+      setResetKey((k) => k + 1);
     },
     []
   );
@@ -220,18 +209,14 @@ export function App(): React.ReactElement {
         prev.sortColumn === column && prev.sortDirection === "ASC"
           ? "DESC"
           : "ASC",
-      offset: 0,
     }));
-  }, []);
-
-  // Pagination
-  const handlePageChange = useCallback((newOffset: number) => {
-    setViewState((prev) => ({ ...prev, offset: newOffset }));
+    setResetKey((k) => k + 1);
   }, []);
 
   // Filters
   const handleFiltersChange = useCallback((filters: FilterCondition[]) => {
-    setViewState((prev) => ({ ...prev, filters, offset: 0 }));
+    setViewState((prev) => ({ ...prev, filters }));
+    setResetKey((k) => k + 1);
   }, []);
 
   // Column operation: run SQL to add/replace column
@@ -240,8 +225,8 @@ export function App(): React.ReactElement {
       if (!activeTable) return;
       try {
         await window.api.exec(sql);
-        // Refresh schema and data
         setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [] }));
+        setResetKey((k) => k + 1);
       } catch (err) {
         console.error("Column operation error:", err);
       }
@@ -263,7 +248,8 @@ export function App(): React.ReactElement {
             columnOrder={viewState.columnOrder}
             onSelectTable={(name) => {
               setActiveTable(name);
-              setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [], filters: [], offset: 0 }));
+              setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [], filters: [] }));
+              setResetKey((k) => k + 1);
             }}
             onToggleColumn={toggleColumn}
             onReorderColumns={reorderColumns}
@@ -288,12 +274,15 @@ export function App(): React.ReactElement {
           {hasData ? (
             <>
               <DataGrid
-                rows={rows}
+                totalRows={totalRows}
+                getRow={getRow}
+                ensureRange={ensureRange}
                 columns={viewState.visibleColumns}
                 sortColumn={viewState.sortColumn}
                 sortDirection={viewState.sortDirection}
                 onSort={handleSort}
                 onReorderColumns={reorderVisibleColumns}
+                resetKey={resetKey}
               />
               {filterPanelOpen && (
                 <FilterPanel
@@ -315,9 +304,6 @@ export function App(): React.ReactElement {
       </div>
       <StatusBar
         totalRows={totalRows}
-        limit={viewState.limit}
-        offset={viewState.offset}
-        onPageChange={handlePageChange}
         activeTable={activeTable}
         tableCount={tables.length}
       />
