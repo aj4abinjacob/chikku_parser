@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Button,
   Checkbox,
@@ -69,6 +69,8 @@ export function Sidebar({
   const [targetCol, setTargetCol] = useState("");
   const [param1, setParam1] = useState("");
   const [param2, setParam2] = useState("");
+  const [previews, setPreviews] = useState<Array<{ original: string; result: string }>>([]);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Drag-and-drop state
   const dragIndexRef = React.useRef<number | null>(null);
@@ -135,46 +137,73 @@ export function Sidebar({
     setDropTarget(null);
   };
 
+  const buildExpression = (op: OpType, col: string, p1: string, p2: string): string | null => {
+    switch (op) {
+      case "regex_extract": {
+        const pattern = p1 || "(.+)";
+        const groupIdx = p2 || "1";
+        return `regexp_extract(CAST("${col}" AS VARCHAR), '${pattern.replace(/'/g, "''")}', ${groupIdx})`;
+      }
+      case "trim":
+        return `TRIM("${col}")`;
+      case "upper":
+        return `UPPER("${col}")`;
+      case "lower":
+        return `LOWER("${col}")`;
+      case "replace_regex":
+        return `regexp_replace("${col}", '${p1.replace(/'/g, "''")}', '${p2.replace(/'/g, "''")}')`;
+      case "substring":
+        return `SUBSTRING("${col}", ${p1 || "1"}, ${p2 || "10"})`;
+      case "custom_sql":
+        return p1 || null;
+      default:
+        return null;
+    }
+  };
+
+  // Live preview: fetch 3 distinct non-null samples and show before/after
+  useEffect(() => {
+    if (!activeTable || !sourceCol) {
+      setPreviews([]);
+      setPreviewError(null);
+      return;
+    }
+    const expr = buildExpression(opType, sourceCol, param1, param2);
+    if (!expr) {
+      setPreviews([]);
+      setPreviewError(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const sql = `SELECT DISTINCT CAST("${sourceCol}" AS VARCHAR) AS "original", CAST(${expr} AS VARCHAR) AS "result" FROM "${activeTable}" WHERE "${sourceCol}" IS NOT NULL LIMIT 3`;
+        const rows = await window.api.query(sql);
+        setPreviews(rows.map((r: any) => ({ original: String(r.original ?? ""), result: String(r.result ?? "") })));
+        setPreviewError(null);
+      } catch (e: any) {
+        setPreviews([]);
+        setPreviewError(e.message || "Preview failed");
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [activeTable, sourceCol, opType, param1, param2]);
+
   const resetForm = () => {
     setSourceCol("");
     setTargetCol("");
     setParam1("");
     setParam2("");
     setOpType("regex_extract");
+    setPreviews([]);
+    setPreviewError(null);
   };
 
   const handleApply = () => {
     if (!activeTable || !sourceCol) return;
 
     const target = targetCol || sourceCol;
-    let expr = "";
-
-    switch (opType) {
-      case "regex_extract": {
-        const pattern = param1 || '(.+)';
-        const groupIdx = param2 || '1';
-        expr = `regexp_extract(CAST("${sourceCol}" AS VARCHAR), '${pattern.replace(/'/g, "''")}', ${groupIdx})`;
-        break;
-      }
-      case "trim":
-        expr = `TRIM("${sourceCol}")`;
-        break;
-      case "upper":
-        expr = `UPPER("${sourceCol}")`;
-        break;
-      case "lower":
-        expr = `LOWER("${sourceCol}")`;
-        break;
-      case "replace_regex":
-        expr = `regexp_replace("${sourceCol}", '${param1.replace(/'/g, "''")}', '${param2.replace(/'/g, "''")}')`;
-        break;
-      case "substring":
-        expr = `SUBSTRING("${sourceCol}", ${param1 || "1"}, ${param2 || "10"})`;
-        break;
-      case "custom_sql":
-        expr = param1;
-        break;
-    }
+    const expr = buildExpression(opType, sourceCol, param1, param2);
+    if (!expr) return;
 
     let finalSql: string;
     if (target === sourceCol) {
@@ -421,6 +450,32 @@ export function Sidebar({
                   placeholder='"price" * 1.1'
                 />
               </FormGroup>
+            )}
+
+            {sourceCol && (previews.length > 0 || previewError) && (
+              <div className="op-preview">
+                <div className="op-preview-header">Preview</div>
+                {previewError ? (
+                  <div className="op-preview-error">{previewError}</div>
+                ) : (
+                  <table className="op-preview-table">
+                    <thead>
+                      <tr>
+                        <th>Original</th>
+                        <th>Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previews.map((p, i) => (
+                        <tr key={i}>
+                          <td>{p.original}</td>
+                          <td>{p.result}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             )}
           </div>
         </DialogBody>
