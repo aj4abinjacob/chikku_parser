@@ -82,6 +82,34 @@ export function buildCombineQuery(tableNames: string[]): string {
 }
 
 /**
+ * Build a column-mapped UNION ALL query.
+ * For each table, selects mapped input columns AS their output names.
+ * Uses NULL for columns not present in a given table.
+ */
+export function buildMappedCombineQuery(
+  tables: { tableName: string; columnNames: string[] }[],
+  mappings: { outputColumn: string; inputColumns: string[] }[]
+): string {
+  if (tables.length === 0 || mappings.length === 0) return "";
+
+  const selects = tables.map((table) => {
+    const columns = mappings.map((mapping) => {
+      const matchedInput = mapping.inputColumns.find((ic) =>
+        table.columnNames.includes(ic)
+      );
+      if (matchedInput) {
+        return `"${matchedInput}" AS "${mapping.outputColumn}"`;
+      } else {
+        return `NULL AS "${mapping.outputColumn}"`;
+      }
+    });
+    return `SELECT ${columns.join(", ")} FROM "${table.tableName}"`;
+  });
+
+  return selects.join("\nUNION ALL\n");
+}
+
+/**
  * Build a query for count (used for pagination).
  */
 export function buildCountQuery(

@@ -35,6 +35,12 @@ export interface FilterCondition {
   value: string;
 }
 
+export interface ColumnMapping {
+  id: string;
+  outputColumn: string;
+  inputColumns: string[];
+}
+
 export interface ViewState {
   visibleColumns: string[];
   filters: FilterCondition[];

@@ -5,6 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
 import { StatusBar } from "./StatusBar";
+import { CombineDialog } from "./CombineDialog";
 import { buildSelectQuery, buildCombineQuery, buildCountQuery } from "../utils/sqlBuilder";
 
 const DEFAULT_PAGE_SIZE = 500;
@@ -22,6 +23,7 @@ export function App(): React.ReactElement {
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [combineDialogOpen, setCombineDialogOpen] = useState(false);
   const [schema, setSchema] = useState<ColumnInfo[]>([]);
   const [rows, setRows] = useState<any[]>([]);
   const [totalRows, setTotalRows] = useState(0);
@@ -125,10 +127,14 @@ export function App(): React.ReactElement {
     fetchData();
   }, [activeTable, viewState]);
 
-  // Combine all loaded tables into a new "combined" table
-  const handleCombine = useCallback(async () => {
+  // Open the column mapping dialog
+  const handleCombineOpen = useCallback(() => {
     if (tables.length < 2) return;
-    const sql = buildCombineQuery(tables.map((t) => t.tableName));
+    setCombineDialogOpen(true);
+  }, [tables]);
+
+  // Execute the combine SQL produced by CombineDialog
+  const handleCombineExecute = useCallback(async (sql: string) => {
     try {
       await window.api.exec(
         `CREATE OR REPLACE TABLE "combined" AS ${sql}`
@@ -150,10 +156,11 @@ export function App(): React.ReactElement {
       });
       setActiveTable("combined");
       setViewState((prev) => ({ ...prev, visibleColumns: [], filters: [], offset: 0 }));
+      setCombineDialogOpen(false);
     } catch (err) {
       console.error("Combine error:", err);
     }
-  }, [tables]);
+  }, []);
 
   // Column visibility toggle
   const toggleColumn = useCallback(
@@ -223,7 +230,7 @@ export function App(): React.ReactElement {
             }}
             onToggleColumn={toggleColumn}
             onColumnOperation={handleColumnOperation}
-            onCombine={handleCombine}
+            onCombine={handleCombineOpen}
             onHide={() => setSidebarVisible(false)}
             filterPanelOpen={filterPanelOpen}
             onToggleFilterPanel={() => setFilterPanelOpen((v) => !v)}
@@ -274,6 +281,12 @@ export function App(): React.ReactElement {
         onPageChange={handlePageChange}
         activeTable={activeTable}
         tableCount={tables.length}
+      />
+      <CombineDialog
+        isOpen={combineDialogOpen}
+        tables={tables.filter((t) => t.tableName !== "combined")}
+        onClose={() => setCombineDialogOpen(false)}
+        onCombine={handleCombineExecute}
       />
     </div>
   );
