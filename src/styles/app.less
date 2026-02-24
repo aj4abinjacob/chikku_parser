@@ -504,26 +504,45 @@ html, body, #root {
 .combine-mapping-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: #f5f8fa;
-  border-radius: 3px;
-  border: 1px solid #e1e8ed;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #d8e1e8;
 
   .combine-mapping-index {
     font-size: 11px;
-    color: #5c7080;
+    font-weight: 600;
+    color: #8a9ba8;
     width: 18px;
     text-align: center;
     flex-shrink: 0;
   }
 
-  .bp4-form-group {
-    margin-bottom: 0;
+  .combine-field-group {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .combine-field-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #8a9ba8;
   }
 
   .bp4-input-group {
     min-width: 0;
+  }
+
+  .bp4-input {
+    font-size: 13px;
+    height: 30px;
+    padding: 0 8px;
   }
 }
 

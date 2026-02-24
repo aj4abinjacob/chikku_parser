@@ -5,7 +5,6 @@ import {
   Dialog,
   DialogBody,
   DialogFooter,
-  FormGroup,
   Icon,
   InputGroup,
   Intent,
@@ -234,7 +233,8 @@ export function CombineDialog({
               {mappings.map((m, index) => (
                 <div key={m.id} className="combine-mapping-row">
                   <span className="combine-mapping-index">{index + 1}</span>
-                  <FormGroup label="Output" inline style={{ marginBottom: 0, flex: 1 }}>
+                  <div className="combine-field-group">
+                    <label className="combine-field-label">Output</label>
                     <InputGroup
                       value={m.outputColumn}
                       onChange={(e) => handleOutputChange(m.id, e.target.value)}
@@ -248,11 +248,11 @@ export function CombineDialog({
                           ? "combine-field-focused"
                           : ""
                       }
-                      small
                     />
-                  </FormGroup>
-                  <Icon icon="arrow-left" size={14} style={{ opacity: 0.5 }} />
-                  <FormGroup label="Input" inline style={{ marginBottom: 0, flex: 1 }}>
+                  </div>
+                  <Icon icon="arrow-left" size={12} style={{ opacity: 0.4, flexShrink: 0 }} />
+                  <div className="combine-field-group">
+                    <label className="combine-field-label">Input</label>
                     <InputGroup
                       value={m.inputColumns.join(", ")}
                       onChange={(e) => handleInputChange(m.id, e.target.value)}
@@ -266,9 +266,8 @@ export function CombineDialog({
                           ? "combine-field-focused"
                           : ""
                       }
-                      small
                     />
-                  </FormGroup>
+                  </div>
                   <Button
                     icon="cross"
                     minimal
