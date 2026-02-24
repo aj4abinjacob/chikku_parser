@@ -206,6 +206,14 @@ html, body, #root {
       color: #5c7080;
     }
 
+    &.header-drop-left {
+      box-shadow: inset 3px 0 0 #137cbd;
+    }
+
+    &.header-drop-right {
+      box-shadow: inset -3px 0 0 #137cbd;
+    }
+
     .col-resize-handle {
       position: absolute;
       top: 0;
@@ -219,6 +227,14 @@ html, body, #root {
         background: rgba(19, 124, 189, 0.3);
       }
     }
+  }
+
+  // Whole-column highlight when dragging a header
+  .column-dragging {
+    background: rgba(19, 124, 189, 0.08);
+    opacity: 0.6;
+    outline: 1px dashed rgba(19, 124, 189, 0.4);
+    outline-offset: -1px;
   }
 
   td {

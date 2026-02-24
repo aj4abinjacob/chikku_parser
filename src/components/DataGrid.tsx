@@ -11,6 +11,7 @@ interface DataGridProps {
   sortColumn: string | null;
   sortDirection: "ASC" | "DESC";
   onSort: (column: string) => void;
+  onReorderColumns?: (newOrder: string[]) => void;
 }
 
 export function DataGrid({
@@ -19,6 +20,7 @@ export function DataGrid({
   sortColumn,
   sortDirection,
   onSort,
+  onReorderColumns,
 }: DataGridProps): React.ReactElement {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<{ row: number; col: string } | null>(null);
@@ -30,6 +32,11 @@ export function DataGrid({
   const dragColRef = useRef<string | null>(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
+
+  // ── Header drag-reorder state ──
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const headerDragCol = useRef<string | null>(null);
+  const [headerDropTarget, setHeaderDropTarget] = useState<{ col: string; position: "left" | "right" } | null>(null);
 
   // Calculate initial column widths when columns change
   useEffect(() => {
@@ -71,6 +78,68 @@ export function DataGrid({
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
+  }, []);
+
+  // ── Header drag-reorder handlers ──
+  const handleHeaderDragStart = useCallback(
+    (e: React.DragEvent, col: string) => {
+      // Don't start header drag if a resize is active
+      if (isDragging.current) {
+        e.preventDefault();
+        return;
+      }
+      headerDragCol.current = col;
+      setDraggingColumn(col);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    []
+  );
+
+  const handleHeaderDragOver = useCallback(
+    (e: React.DragEvent, col: string) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (!headerDragCol.current || headerDragCol.current === col) {
+        setHeaderDropTarget(null);
+        return;
+      }
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      const position = e.clientX < midX ? "left" : "right";
+      setHeaderDropTarget({ col, position });
+    },
+    []
+  );
+
+  const handleHeaderDragLeave = useCallback(() => {
+    setHeaderDropTarget(null);
+  }, []);
+
+  const handleHeaderDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const fromCol = headerDragCol.current;
+      if (!fromCol || !headerDropTarget || !onReorderColumns) return;
+
+      const newOrder = [...columns];
+      const fromIndex = newOrder.indexOf(fromCol);
+      newOrder.splice(fromIndex, 1);
+      let toIndex = newOrder.indexOf(headerDropTarget.col);
+      if (headerDropTarget.position === "right") toIndex++;
+      newOrder.splice(toIndex, 0, fromCol);
+
+      onReorderColumns(newOrder);
+      headerDragCol.current = null;
+      setDraggingColumn(null);
+      setHeaderDropTarget(null);
+    },
+    [columns, headerDropTarget, onReorderColumns]
+  );
+
+  const handleHeaderDragEnd = useCallback(() => {
+    headerDragCol.current = null;
+    setDraggingColumn(null);
+    setHeaderDropTarget(null);
   }, []);
 
   const handleResizeStart = useCallback(
@@ -175,7 +244,20 @@ export function DataGrid({
           <tr>
             <th style={{ textAlign: "right", color: "#5c7080" }}>#</th>
             {columns.map((col) => (
-              <th key={col} onClick={() => onSort(col)}>
+              <th
+                key={col}
+                className={[
+                  draggingColumn === col ? "column-dragging" : "",
+                  headerDropTarget?.col === col ? `header-drop-${headerDropTarget.position}` : "",
+                ].filter(Boolean).join(" ") || undefined}
+                draggable={!!onReorderColumns}
+                onClick={() => onSort(col)}
+                onDragStart={(e) => handleHeaderDragStart(e, col)}
+                onDragOver={(e) => handleHeaderDragOver(e, col)}
+                onDragLeave={handleHeaderDragLeave}
+                onDrop={handleHeaderDrop}
+                onDragEnd={handleHeaderDragEnd}
+              >
                 {col}
                 {sortColumn === col && (
                   <span className="sort-indicator">
@@ -203,7 +285,10 @@ export function DataGrid({
                 <td
                   key={col}
                   title={String(row[col] ?? "")}
-                  className={selected.has(cellKey(rowIdx, col)) ? "cell-selected" : ""}
+                  className={[
+                    selected.has(cellKey(rowIdx, col)) ? "cell-selected" : "",
+                    draggingColumn === col ? "column-dragging" : "",
+                  ].filter(Boolean).join(" ") || undefined}
                   onClick={(e) => handleCellClick(rowIdx, col, e)}
                 >
                   {formatCell(row[col])}

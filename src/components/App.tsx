@@ -176,13 +176,36 @@ export function App(): React.ReactElement {
     []
   );
 
-  // Column reorder from sidebar drag
+  // Column reorder from sidebar drag (reorders all columns)
   const reorderColumns = useCallback(
     (newOrder: string[]) => {
       setViewState((prev) => {
         const visibleSet = new Set(prev.visibleColumns);
         const newVisible = newOrder.filter((col) => visibleSet.has(col));
         return { ...prev, columnOrder: newOrder, visibleColumns: newVisible, offset: 0 };
+      });
+    },
+    []
+  );
+
+  // Column reorder from grid header drag (reorders visible columns only)
+  const reorderVisibleColumns = useCallback(
+    (newVisible: string[]) => {
+      setViewState((prev) => {
+        // Rebuild columnOrder: place visible columns in their new order,
+        // keep hidden columns in their previous relative positions
+        const visibleSet = new Set(newVisible);
+        // Interleave: walk through old columnOrder, replacing visible slots with new order
+        const newColumnOrder: string[] = [];
+        let vi = 0;
+        for (const col of prev.columnOrder) {
+          if (visibleSet.has(col)) {
+            newColumnOrder.push(newVisible[vi++]);
+          } else {
+            newColumnOrder.push(col);
+          }
+        }
+        return { ...prev, columnOrder: newColumnOrder, visibleColumns: newVisible, offset: 0 };
       });
     },
     []
@@ -270,6 +293,7 @@ export function App(): React.ReactElement {
                 sortColumn={viewState.sortColumn}
                 sortDirection={viewState.sortDirection}
                 onSort={handleSort}
+                onReorderColumns={reorderVisibleColumns}
               />
               {filterPanelOpen && (
                 <FilterPanel
