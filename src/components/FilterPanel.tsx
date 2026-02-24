@@ -366,6 +366,15 @@ export function FilterPanel({
               onClick={clearAll}
             />
           )}
+          {drafts.length > 0 && (
+            <Button
+              intent={Intent.PRIMARY}
+              text="Apply Filters"
+              small
+              onClick={applyFilters}
+              disabled={!isDirty && activeFilters.length === drafts.length}
+            />
+          )}
         </div>
       </div>
 
@@ -444,17 +453,6 @@ export function FilterPanel({
         </div>
       )}
 
-      {drafts.length > 0 && (
-        <div className="filter-panel-footer">
-          <Button
-            intent={Intent.PRIMARY}
-            text="Apply Filters"
-            small
-            onClick={applyFilters}
-            disabled={!isDirty && activeFilters.length === drafts.length}
-          />
-        </div>
-      )}
     </div>
   );
 }
