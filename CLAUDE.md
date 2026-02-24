@@ -76,6 +76,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 
 - `app/` — Electron main process + preload (Node.js context)
 - `src/components/` — React components (7 files)
+- `src/hooks/` — Custom React hooks (`useChunkCache`)
 - `src/utils/` — SQL query builder utilities
 - `src/types.ts` — All TypeScript interfaces
 - `src/styles/` — Less stylesheets (imports BlueprintJS CSS)
@@ -88,6 +89,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **TypeScript 5** — all source files (strict mode, target ES2020, module CommonJS)
 - **DuckDB** — in-memory analytical database for CSV loading, querying, combining, and column operations
 - **BlueprintJS 4** — UI component library (`@blueprintjs/core`, `@blueprintjs/icons`, `@blueprintjs/popover2`)
+- **@tanstack/react-virtual** — virtual scrolling for the DataGrid (renders only visible rows)
 - **Webpack 5** — bundles 3 targets with ts-loader, less/css loaders, file-loader for fonts
 - **Less** — stylesheet preprocessor
 - **lodash** — utility library (available as dependency)
@@ -96,14 +98,15 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ## Components
 
 ### App.tsx — Main Orchestrator
-- State: `tables[]`, `activeTable`, `viewState`, `schema`, `rows`, `totalRows`, `combineDialogOpen`
+- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`
+- Uses `useChunkCache` hook for lazy data loading (no `rows`/`totalRows` state — provided by the hook)
 - Registers IPC listeners on mount: `onOpenFiles` (replace), `onAddFiles` (append), `onExportCSV`
 - `loadFiles(filePaths, replace)` — loads CSVs into DuckDB, updates table list
-- `handleCombineOpen()` — opens CombineDialog (replaces old instant UNION ALL)
+- `handleCombineOpen()` — opens CombineDialog
 - `handleCombineExecute(sql)` — executes combine SQL from dialog, creates "combined" table
 - `handleColumnOperation(sql)` — executes arbitrary SQL for column transforms
-- Data fetching effect: re-queries on `activeTable` or `viewState` change
-- `DEFAULT_PAGE_SIZE = 500`
+- Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
+- `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
 - Layout: `Sidebar + DataGrid + FilterPanel + StatusBar + CombineDialog`
 
 ### Sidebar.tsx — Left Panel
@@ -119,13 +122,21 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
   - `custom_sql` — arbitrary SQL expression
 - Filter panel toggle button
 
-### DataGrid.tsx — Scrollable Data Table
-- `table-layout: fixed` with resizable columns (drag handle on header)
-- Cell selection: click, Shift+click (range), Cmd/Ctrl+click (toggle)
-- Copy: Cmd/Ctrl+C copies selected cells as TSV to clipboard
+### DataGrid.tsx — Virtualized Scrollable Data Grid
+- **Virtual scrolling** via `@tanstack/react-virtual` `useVirtualizer` — only renders visible rows (~30-50) plus 20 overscan rows
+- Div-based layout (flexbox rows, not `<table>`) with CSS classes `.dg-header`, `.dg-row`, `.dg-cell`
+- Props: `totalRows`, `getRow(index)`, `ensureRange(start, end)` from chunk cache — no `rows[]` array
+- Fixed `ROW_HEIGHT = 28` for virtualizer sizing
+- Sticky header inside scroll container for automatic horizontal scroll sync
+- Cell selection: click, Shift+click (range), Cmd/Ctrl+click (toggle) — uses absolute row indices
+- Copy: Cmd/Ctrl+C copies selected cells as TSV via `getRow()` lookup
 - Sort: click column header to toggle ASC/DESC
-- Row numbering in first column
+- Column resize: drag handle on header right edge
+- Column reorder: drag-and-drop header cells
+- Row numbering: absolute 1-based index in first column
 - Number formatting: integers as-is, floats to 4 decimal places
+- Unloaded rows show "..." placeholder (`.loading-cell` style)
+- `resetKey` prop: scrolls to top and clears selection when it changes
 - Monospace font (`SF Mono`, `Menlo`, `Monaco`)
 
 ### FilterPanel.tsx — Resizable Bottom Panel
@@ -154,10 +165,22 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 
 ### StatusBar.tsx — Bottom Info Bar
 - Shows: `{activeTable} | {totalRows} rows | {tableCount} table(s) loaded`
-- Pagination: prev/next buttons, page N of M display
+- Info-only display (no pagination controls)
 
 ### Toolbar.tsx — Minimal Toolbar
 - Sidebar toggle button and Combine button (largely superseded by Sidebar)
+
+## Hooks
+
+### useChunkCache (`src/hooks/useChunkCache.ts`) — Lazy Data Loading
+- Fetches data from DuckDB in 1000-row chunks on demand
+- `CHUNK_SIZE = 1000`, `MAX_CACHED_CHUNKS = 20` (~20K rows max in memory)
+- LRU eviction: evicts least-recently-used chunks when cache exceeds limit
+- Generation counter: discards stale responses after cache resets (table/filter/sort changes)
+- Tracks in-flight requests to prevent duplicate fetches
+- Auto-resets on `tableName`, `filters`, `sortColumn`, `sortDirection`, or `visibleColumns` change
+- Returns: `{ totalRows, getRow(index), isRowLoaded(index), ensureRange(start, end) }`
+- Uses `buildChunkQuery()` for per-chunk SQL and `buildCountQuery()` for total count
 
 ## Types (`src/types.ts`)
 
@@ -167,18 +190,19 @@ LoadedTable       // { tableName, filePath, schema: ColumnInfo[], rowCount }
 ColumnOperation   // { type, sourceColumn, targetColumn, params: Record<string,string> }
 FilterCondition   // { column, operator, value }
 ColumnMapping     // { id, outputColumn, inputColumns: string[] }
-ViewState         // { visibleColumns[], filters[], sortColumn, sortDirection, limit, offset }
+ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, sortDirection }
 ```
 
 ## SQL Builder (`src/utils/sqlBuilder.ts`)
 
 | Function | Purpose |
 |----------|---------|
-| `buildSelectQuery(tableName, viewState)` | SELECT with columns, WHERE, ORDER BY, LIMIT/OFFSET |
+| `buildSelectQuery(tableName, viewState)` | SELECT with columns, WHERE, ORDER BY (no LIMIT/OFFSET — used for export) |
 | `buildFilterClause(filter)` | Single FilterCondition → SQL WHERE clause (internal) |
 | `buildCombineQuery(tableNames[])` | Simple `SELECT * ... UNION ALL` (used by export) |
 | `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases and NULL for missing columns |
-| `buildCountQuery(tableName, filters[])` | `SELECT COUNT(*) ... WHERE` for pagination |
+| `buildChunkQuery(tableName, columns, filters, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
+| `buildCountQuery(tableName, filters[])` | `SELECT COUNT(*) ... WHERE` for total row count |
 
 ## Styling (`src/styles/app.less`)
 
@@ -186,6 +210,8 @@ ViewState         // { visibleColumns[], filters[], sortColumn, sortDirection, l
 - CSS variables: `--sidebar-width: 280px`, `--statusbar-height: 28px`
 - Color palette: `#f5f8fa` (bg), `#394b59` (text), `#5c7080` (secondary), `#137cbd` (accent blue), `#d8e1e8` (borders)
 - Layout: flexbox throughout — `.app-container` (column) → `.main-layout` (row) → `.sidebar` (fixed 280px) + `.data-area` (flex: 1)
+- DataGrid uses div-based layout: `.data-grid-container` → `.data-grid-scroll` → `.dg-header` (sticky) + virtual `.dg-row` elements
+- Cell classes: `.dg-cell`, `.dg-row-num-cell`, `.dg-header-cell`, `.cell-selected`, `.loading-cell`, `.column-dragging`
 - Filter inputs match HTMLSelect appearance: `height: 30px`, border styling
 - Combine dialog inputs also use `height: 30px` to match
 
@@ -193,11 +219,14 @@ ViewState         // { visibleColumns[], filters[], sortColumn, sortDirection, l
 
 1. User opens CSV files via native file dialog (Cmd+O to replace, Cmd+Shift+O to add)
 2. Main process loads CSVs into the window's DuckDB instance via `read_csv_auto()`
-3. Renderer queries DuckDB through IPC for schema, data pages, and counts
-4. `sqlBuilder.ts` constructs SELECT/WHERE/ORDER BY/LIMIT queries from ViewState
-5. **Combine**: User opens CombineDialog → maps output←input columns → generates mapped UNION ALL SQL → creates "combined" table
-6. Column operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
-7. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')`
+3. Renderer fetches schema via IPC; `useChunkCache` hook manages data loading
+4. As the user scrolls, `@tanstack/react-virtual` computes visible row indices
+5. `useChunkCache.ensureRange()` fetches missing 1000-row chunks from DuckDB via `buildChunkQuery()`
+6. Chunks far from the viewport are evicted (LRU, max 20 chunks = ~20K rows in memory)
+7. `getRow(index)` returns cached row data synchronously; unloaded rows show "..." placeholder
+8. **Combine**: User opens CombineDialog → maps output←input columns → generates mapped UNION ALL SQL → creates "combined" table
+9. Column operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
+10. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')`
 
 ## Keyboard Shortcuts
 
