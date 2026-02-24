@@ -527,32 +527,58 @@ html, body, #root {
 
 // ── IN value picker ──
 .in-value-picker-wrapper {
-  width: 200px;
+  width: 220px;
   flex-shrink: 0;
 }
 
 .in-value-dropdown {
   background: #fff;
   border: 1px solid #d8e1e8;
-  border-radius: 3px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(17, 20, 24, 0.05);
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  max-height: 280px;
+  max-height: 300px;
+
+  .bp4-input {
+    box-shadow: none;
+    border: 1px solid rgba(17, 20, 24, 0.2);
+    background: linear-gradient(180deg, hsla(0, 0%, 100%, 0.8), hsla(0, 0%, 100%, 0.0));
+    height: 28px;
+    font-size: 12px;
+
+    &:focus {
+      box-shadow: 0 0 0 1px #137cbd, 0 0 0 3px rgba(19, 124, 189, 0.15);
+      border-color: #137cbd;
+    }
+  }
 }
 
 .in-value-dropdown-header {
-  padding: 6px 8px;
+  padding: 8px 8px 6px;
   border-bottom: 1px solid #e1e8ed;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .in-value-dropdown-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
+
+  .bp4-button {
+    font-size: 11px;
+    color: #137cbd;
+  }
+}
+
+.in-value-dropdown-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8a9ba8;
+  padding-right: 2px;
 }
 
 .in-value-dropdown-list {
@@ -560,18 +586,34 @@ html, body, #root {
   padding: 4px 0;
   flex: 1;
   min-height: 0;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #c5cdd4;
+    border-radius: 3px;
+  }
 }
 
 .in-value-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 0;
+  padding: 1px 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  min-height: 26px;
 
   &:hover {
-    background: #f5f8fa;
+    background: #edf4fa;
+  }
+
+  .bp4-control {
+    margin-bottom: 0;
   }
 }
 
@@ -579,12 +621,15 @@ html, body, #root {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 300px;
+  flex: 1;
+  min-width: 0;
+  color: #394b59;
+  line-height: 1.4;
 }
 
 .in-value-dropdown-empty {
-  padding: 8px 12px;
-  color: #5c7080;
+  padding: 12px;
+  color: #8a9ba8;
   font-size: 12px;
   text-align: center;
 }

@@ -169,6 +169,9 @@ function InValuePicker({
             <div className="in-value-dropdown-actions">
               <Button small minimal text="All" onClick={selectAll} />
               <Button small minimal text="None" onClick={clearAll} />
+              <span className="in-value-dropdown-count">
+                {selected.size} / {uniqueValues.length}
+              </span>
             </div>
           </div>
           <div className="in-value-dropdown-list">
@@ -183,14 +186,13 @@ function InValuePicker({
                 <label
                   key={val}
                   className="in-value-dropdown-item"
-                  title={val}
                 >
                   <Checkbox
                     checked={selected.has(val)}
                     onChange={() => toggle(val)}
                     style={{ marginBottom: 0 }}
                   />
-                  <span className="in-value-dropdown-label">{val}</span>
+                  <span className="in-value-dropdown-label" title={val}>{val}</span>
                 </label>
               ))}
           </div>
