@@ -98,11 +98,12 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ## Components
 
 ### App.tsx — Main Orchestrator
-- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`
+- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`, `combineTableNames`
 - Uses `useChunkCache` hook for lazy data loading (no `rows`/`totalRows` state — provided by the hook)
 - Registers IPC listeners on mount: `onOpenFiles` (replace), `onAddFiles` (append), `onExportCSV`
 - `loadFiles(filePaths, replace)` — loads CSVs into DuckDB, updates table list
-- `handleCombineOpen()` — opens CombineDialog
+- `handleDeleteTable(tableName)` — drops table from DuckDB via `DROP TABLE IF EXISTS`, removes from state, switches active table if needed
+- `handleCombineOpen(selectedNames)` — stores selected table names, opens CombineDialog with only those tables
 - `handleCombineExecute(sql)` — executes combine SQL from dialog, creates "combined" table
 - `handleColumnOperation(sql)` — executes arbitrary SQL for column transforms
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
@@ -111,7 +112,9 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 
 ### Sidebar.tsx — Left Panel
 - Lists loaded tables with row counts (click to switch active table)
-- "Combine N Tables" button (visible when 2+ tables loaded)
+- **Delete table**: hover-reveal `x` button on each table row; opens BlueprintJS `Alert` confirmation before calling `onDeleteTable`
+- **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change
+- "Combine N Selected" button (enabled when 2+ tables selected, passes selected names to `onCombine`)
 - Column visibility checkboxes
 - Column Operation dialog with 7 operation types:
   - `regex_extract` — regexp_extract() with user-provided pattern + capture group index; casts source to VARCHAR first so it works on any data type
@@ -224,9 +227,10 @@ ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, s
 5. `useChunkCache.ensureRange()` fetches missing 1000-row chunks from DuckDB via `buildChunkQuery()`
 6. Chunks far from the viewport are evicted (LRU, max 20 chunks = ~20K rows in memory)
 7. `getRow(index)` returns cached row data synchronously; unloaded rows show "..." placeholder
-8. **Combine**: User opens CombineDialog → maps output←input columns → generates mapped UNION ALL SQL → creates "combined" table
-9. Column operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
-10. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')`
+8. **Delete**: User hovers table row → clicks `x` → confirms in Alert → `DROP TABLE IF EXISTS` via IPC, removed from state
+9. **Combine**: User selects tables via checkboxes → clicks "Combine N Selected" → CombineDialog opens with only selected tables → maps output←input columns → generates mapped UNION ALL SQL → creates "combined" table
+10. Column operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
+11. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')`
 
 ## Keyboard Shortcuts
 

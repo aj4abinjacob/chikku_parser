@@ -22,6 +22,7 @@ export function App(): React.ReactElement {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [combineDialogOpen, setCombineDialogOpen] = useState(false);
+  const [combineTableNames, setCombineTableNames] = useState<string[]>([]);
   const [schema, setSchema] = useState<ColumnInfo[]>([]);
   const [resetKey, setResetKey] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
@@ -114,11 +115,31 @@ export function App(): React.ReactElement {
     fetchSchema();
   }, [activeTable, schemaVersion]);
 
-  // Open the column mapping dialog
-  const handleCombineOpen = useCallback(() => {
-    if (tables.length < 2) return;
+  // Delete a table from DuckDB and state
+  const handleDeleteTable = useCallback(async (tableName: string) => {
+    try {
+      await window.api.exec(`DROP TABLE IF EXISTS "${tableName}"`);
+    } catch (err) {
+      console.error("Drop table error:", err);
+    }
+    setTables((prev) => {
+      const remaining = prev.filter((t) => t.tableName !== tableName);
+      if (activeTableRef.current === tableName) {
+        const next = remaining.length > 0 ? remaining[0].tableName : null;
+        setActiveTable(next);
+        setViewState((prev) => ({ ...prev, filters: [] }));
+        setResetKey((k) => k + 1);
+      }
+      return remaining;
+    });
+  }, []);
+
+  // Open the column mapping dialog with selected tables
+  const handleCombineOpen = useCallback((selectedNames: string[]) => {
+    if (selectedNames.length < 2) return;
+    setCombineTableNames(selectedNames);
     setCombineDialogOpen(true);
-  }, [tables]);
+  }, []);
 
   // Execute the combine SQL produced by CombineDialog
   const handleCombineExecute = useCallback(async (sql: string) => {
@@ -250,6 +271,7 @@ export function App(): React.ReactElement {
             onToggleColumn={toggleColumn}
             onReorderColumns={reorderColumns}
             onColumnOperation={handleColumnOperation}
+            onDeleteTable={handleDeleteTable}
             onCombine={handleCombineOpen}
             onHide={() => setSidebarVisible(false)}
             filterPanelOpen={filterPanelOpen}
@@ -300,12 +322,19 @@ export function App(): React.ReactElement {
       </div>
       <StatusBar
         totalRows={totalRows}
+        unfilteredRows={
+          viewState.filters.length > 0
+            ? tables.find((t) => t.tableName === activeTable)?.rowCount ?? null
+            : null
+        }
         activeTable={activeTable}
         tableCount={tables.length}
       />
       <CombineDialog
         isOpen={combineDialogOpen}
-        tables={tables.filter((t) => t.tableName !== "combined")}
+        tables={tables.filter(
+          (t) => t.tableName !== "combined" && combineTableNames.includes(t.tableName)
+        )}
         onClose={() => setCombineDialogOpen(false)}
         onCombine={handleCombineExecute}
       />

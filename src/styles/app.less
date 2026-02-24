@@ -84,14 +84,26 @@ html, body, #root {
   .table-list-item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 4px 0;
     font-size: 13px;
+
+    &.active {
+      .table-name {
+        color: #137cbd;
+        font-weight: 600;
+      }
+    }
+
+    .table-combine-checkbox {
+      flex-shrink: 0;
+    }
 
     .table-name {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      flex: 1;
+      min-width: 0;
     }
 
     .row-count {
@@ -99,6 +111,21 @@ html, body, #root {
       font-size: 11px;
       flex-shrink: 0;
       margin-left: 8px;
+    }
+
+    .table-delete-btn {
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity 0.15s;
+      margin-left: 4px;
+    }
+
+    &:hover .table-delete-btn {
+      opacity: 0.6;
+    }
+
+    .table-delete-btn:hover {
+      opacity: 1 !important;
     }
   }
 

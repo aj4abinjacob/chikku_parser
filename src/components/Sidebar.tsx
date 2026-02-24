@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
+  Alert,
   Button,
   Checkbox,
   Icon,
@@ -43,7 +44,8 @@ interface SidebarProps {
   onToggleColumn: (colName: string) => void;
   onReorderColumns: (newOrder: string[]) => void;
   onColumnOperation: (sql: string) => void;
-  onCombine: () => void;
+  onDeleteTable: (tableName: string) => void;
+  onCombine: (selectedNames: string[]) => void;
   onHide: () => void;
   onToggleFilterPanel: () => void;
 }
@@ -59,11 +61,14 @@ export function Sidebar({
   onToggleColumn,
   onReorderColumns,
   onColumnOperation,
+  onDeleteTable,
   onCombine,
   onHide,
   onToggleFilterPanel,
 }: SidebarProps): React.ReactElement {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
   const [opType, setOpType] = useState<OpType>("regex_extract");
   const [sourceCol, setSourceCol] = useState("");
   const [targetCol, setTargetCol] = useState("");
@@ -75,6 +80,24 @@ export function Sidebar({
   // Drag-and-drop state
   const dragIndexRef = React.useRef<number | null>(null);
   const [dropTarget, setDropTarget] = useState<{ index: number; position: "top" | "bottom" } | null>(null);
+
+  // Clean up stale selections when tables change
+  useEffect(() => {
+    const tableNames = new Set(tables.map((t) => t.tableName));
+    setSelectedForCombine((prev) => {
+      const cleaned = new Set([...prev].filter((n) => tableNames.has(n)));
+      return cleaned.size === prev.size ? prev : cleaned;
+    });
+  }, [tables]);
+
+  const toggleCombineSelection = (tableName: string) => {
+    setSelectedForCombine((prev) => {
+      const next = new Set(prev);
+      if (next.has(tableName)) next.delete(tableName);
+      else next.add(tableName);
+      return next;
+    });
+  };
 
   // Build a lookup map from schema for column types
   const colTypeMap = React.useMemo(() => {
@@ -246,15 +269,21 @@ export function Sidebar({
         {tables.map((t) => (
           <div
             key={t.tableName}
-            className="table-list-item"
-            onClick={() => onSelectTable(t.tableName)}
-            style={{
-              cursor: "pointer",
-              fontWeight: t.tableName === activeTable ? 600 : 400,
-              color: t.tableName === activeTable ? "#137cbd" : undefined,
-            }}
+            className={`table-list-item${t.tableName === activeTable ? " active" : ""}`}
+            style={{ cursor: "pointer" }}
           >
-            <span className="table-name">
+            {tables.length >= 2 && (
+              <Checkbox
+                checked={selectedForCombine.has(t.tableName)}
+                onChange={() => toggleCombineSelection(t.tableName)}
+                className="table-combine-checkbox"
+                style={{ marginBottom: 0, marginRight: 4 }}
+              />
+            )}
+            <span
+              className="table-name"
+              onClick={() => onSelectTable(t.tableName)}
+            >
               <Icon
                 icon="th"
                 size={12}
@@ -265,6 +294,16 @@ export function Sidebar({
             <span className="row-count">
               {t.rowCount.toLocaleString()} rows
             </span>
+            <Button
+              icon="cross"
+              minimal
+              small
+              className="table-delete-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteTarget(t.tableName);
+              }}
+            />
           </div>
         ))}
       </div>
@@ -275,10 +314,11 @@ export function Sidebar({
           <Button
             intent={Intent.PRIMARY}
             icon="merge-columns"
-            text={`Combine ${tables.length} Tables`}
-            onClick={onCombine}
+            text={`Combine ${selectedForCombine.size} Selected`}
+            onClick={() => onCombine([...selectedForCombine])}
             small
             fill
+            disabled={selectedForCombine.size < 2}
           />
         </div>
       )}
@@ -339,6 +379,21 @@ export function Sidebar({
           />
         </div>
       )}
+
+      <Alert
+        isOpen={deleteTarget !== null}
+        onConfirm={() => {
+          if (deleteTarget) onDeleteTable(deleteTarget);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+        cancelButtonText="Cancel"
+        confirmButtonText="Remove"
+        intent={Intent.DANGER}
+        icon="trash"
+      >
+        <p>Remove table <strong>{deleteTarget}</strong>? This will drop it from the current session.</p>
+      </Alert>
 
       <Dialog
         isOpen={dialogOpen}
