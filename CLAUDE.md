@@ -35,7 +35,7 @@ npm run clean        # Remove dist/
 
 ### Main Process (`app/main.ts`)
 
-- Creates BrowserWindow with context isolation + preload
+- Creates BrowserWindow with context isolation + preload, app icon set from `res/icon.svg`
 - **Per-window DuckDB instances** — each window gets its own in-memory `Database(":memory:")` stored in `dbMap: Map<webContentsId, Database>`. Cleaned up with `db.close()` on window close. No shared state between windows.
 - Native menu: File (Open CSV, Add CSV, Export CSV, Quit), Edit, View
 - Menu actions use `BrowserWindow.getFocusedWindow()` to target the active window
@@ -84,7 +84,8 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `src/utils/` — SQL query builder utilities
 - `src/types.ts` — All TypeScript interfaces
 - `src/styles/` — Less stylesheets (imports BlueprintJS CSS)
-- `html/` — HTML shell (copied to dist at build time, has CSP policy)
+- `html/` — HTML shell + favicon SVG (copied to dist at build time, has CSP policy)
+- `res/` — Build resources for electron-builder; contains `icon.svg` (app icon source)
 
 ### Tech Stack
 
