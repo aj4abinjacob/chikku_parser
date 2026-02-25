@@ -36,6 +36,11 @@ export function CombineDialog({
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [focusedMappingId, setFocusedMappingId] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<"output" | "input">("output");
+  const [replaceNotice, setReplaceNotice] = useState<{
+    mappingId: string;
+    message: string;
+  } | null>(null);
+  const replaceNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mappingsListRef = useRef<HTMLDivElement>(null);
   const lastAddedIdRef = useRef<string | null>(null);
 
@@ -197,6 +202,36 @@ export function CombineDialog({
   const handleColumnClick = useCallback(
     (colName: string) => {
       if (!focusedMappingId) return;
+
+      // Detect replacements before updating state
+      if (focusedField === "input") {
+        const currentMapping = mappings.find((m) => m.id === focusedMappingId);
+        if (currentMapping && !currentMapping.inputColumns.includes(colName)) {
+          const clickedTables = columnToTables.get(colName) || new Set();
+          const replaced = currentMapping.inputColumns.filter((existing) => {
+            const existingTables = columnToTables.get(existing) || new Set();
+            for (const t of existingTables) {
+              if (clickedTables.has(t)) return true;
+            }
+            return false;
+          });
+          if (replaced.length > 0) {
+            const sharedTables = new Set<string>();
+            for (const rep of replaced) {
+              const repTables = columnToTables.get(rep) || new Set();
+              for (const t of repTables) {
+                if (clickedTables.has(t)) sharedTables.add(t);
+              }
+            }
+            const tableStr = [...sharedTables].join(", ");
+            const msg = `Replaced ${replaced.join(", ")} — both in ${tableStr}`;
+            setReplaceNotice({ mappingId: focusedMappingId, message: msg });
+            if (replaceNoticeTimer.current) clearTimeout(replaceNoticeTimer.current);
+            replaceNoticeTimer.current = setTimeout(() => setReplaceNotice(null), 3000);
+          }
+        }
+      }
+
       setMappings((prev) =>
         prev.map((m) => {
           if (m.id !== focusedMappingId) return m;
@@ -222,7 +257,7 @@ export function CombineDialog({
         })
       );
     },
-    [focusedMappingId, focusedField, columnToTables]
+    [focusedMappingId, focusedField, columnToTables, mappings]
   );
 
   const handleOutputChange = useCallback((id: string, value: string) => {
@@ -280,11 +315,19 @@ export function CombineDialog({
     });
   }, [mappings]);
 
+  // Clean up notice timer on unmount
+  useEffect(() => {
+    return () => {
+      if (replaceNoticeTimer.current) clearTimeout(replaceNoticeTimer.current);
+    };
+  }, []);
+
   // Reset state when dialog opens
   const handleOpening = useCallback(() => {
     setMappings([]);
     setFocusedMappingId(null);
     setFocusedField("output");
+    setReplaceNotice(null);
   }, []);
 
   return (
@@ -390,6 +433,12 @@ export function CombineDialog({
                           </Tag>
                         ))}
                       </div>
+                      {replaceNotice && replaceNotice.mappingId === m.id && (
+                        <div className="combine-replace-notice">
+                          <Icon icon="swap-horizontal" size={12} />
+                          {replaceNotice.message}
+                        </div>
+                      )}
                     </div>
                     <Button
                       icon="cross"
