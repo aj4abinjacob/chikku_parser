@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from "electron";
 import path from "path";
 import log from "electron-log";
 import { Database } from "duckdb";
@@ -31,12 +31,15 @@ function getDb(event: Electron.IpcMainInvokeEvent): Database {
 }
 
 function createWindow(): void {
+  const iconPath = path.join(__dirname, "..", "res", "icon.svg");
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 800,
     minHeight: 600,
     title: "Chikku Data Combiner",
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.bundle.js"),
       contextIsolation: true,
