@@ -31,7 +31,7 @@ function getDb(event: Electron.IpcMainInvokeEvent): Database {
 }
 
 function createWindow(): void {
-  const iconPath = path.join(__dirname, "..", "res", "icon.svg");
+  const iconPath = path.join(__dirname, "..", "res", "icon.png");
 
   const win = new BrowserWindow({
     width: 1400,
@@ -281,6 +281,14 @@ ipcMain.handle(
 // ── App Lifecycle ──
 
 app.whenReady().then(() => {
+  // Set dock icon on macOS (needed for dev mode; production uses .icns from app bundle)
+  if (process.platform === "darwin" && app.dock) {
+    const dockIcon = nativeImage.createFromPath(
+      path.join(__dirname, "..", "res", "icon.png")
+    );
+    app.dock.setIcon(dockIcon);
+  }
+
   buildMenu();
   createWindow();
 
