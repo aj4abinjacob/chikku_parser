@@ -108,7 +108,11 @@ export function App(): React.ReactElement {
 
   // When active table changes, refresh schema and reset columns
   useEffect(() => {
-    if (!activeTable) return;
+    if (!activeTable) {
+      setSchema([]);
+      setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [] }));
+      return;
+    }
 
     const fetchSchema = async () => {
       try {
