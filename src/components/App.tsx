@@ -256,8 +256,8 @@ export function App(): React.ReactElement {
     setResetKey((k) => k + 1);
   }, []);
 
-  // Column operation: run SQL to add/replace column
-  const handleColumnOperation = useCallback(
+  // Data operation: run SQL to transform columns/rows
+  const handleDataOperation = useCallback(
     async (sql: string) => {
       if (!activeTable) return;
       try {
@@ -265,7 +265,7 @@ export function App(): React.ReactElement {
         setSchemaVersion((v) => v + 1);
         setResetKey((k) => k + 1);
       } catch (err) {
-        console.error("Column operation error:", err);
+        console.error("Data operation error:", err);
       }
     },
     [activeTable]
@@ -297,7 +297,7 @@ export function App(): React.ReactElement {
             }}
             onToggleColumn={toggleColumn}
             onReorderColumns={reorderColumns}
-            onColumnOperation={handleColumnOperation}
+            onDataOperation={handleDataOperation}
             onDeleteTable={handleDeleteTable}
             onCombine={handleCombineOpen}
             onHide={() => setSidebarVisible(false)}

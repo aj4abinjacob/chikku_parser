@@ -981,12 +981,31 @@ html, body, #root {
   .bp4-tag {
     font-size: 12px;
   }
+}
 
-  .combine-tag-source {
-    font-size: 10px;
-    opacity: 0.65;
-    margin-left: 4px;
-    font-weight: 400;
+.combine-replace-notice {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #bf7326;
+  padding: 2px 0;
+  animation: combine-notice-in 0.2s ease-out;
+
+  .bp4-icon {
+    color: #bf7326;
+    flex-shrink: 0;
+  }
+}
+
+@keyframes combine-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

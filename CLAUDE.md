@@ -79,7 +79,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (7 files)
+- `src/components/` — React components (8 files)
 - `src/hooks/` — Custom React hooks (`useChunkCache`)
 - `src/utils/` — SQL query builder utilities
 - `src/types.ts` — All TypeScript interfaces
@@ -91,7 +91,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Electron 31** — desktop shell
 - **React 18** — UI framework
 - **TypeScript 5** — all source files (strict mode, target ES2020, module CommonJS)
-- **DuckDB** — in-memory analytical database for CSV loading, querying, combining, and column operations
+- **DuckDB** — in-memory analytical database for CSV loading, querying, combining, and data operations
 - **BlueprintJS 4** — UI component library (`@blueprintjs/core`, `@blueprintjs/icons`, `@blueprintjs/popover2`)
 - **@tanstack/react-virtual** — virtual scrolling for the DataGrid (renders only visible rows)
 - **Webpack 5** — bundles 3 targets with ts-loader, less/css loaders, file-loader for fonts
@@ -109,7 +109,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `handleDeleteTable(tableName)` — drops table from DuckDB via `DROP TABLE IF EXISTS`, removes from state, switches active table if needed
 - `handleCombineOpen(selectedNames)` — stores selected table names, opens CombineDialog with only those tables
 - `handleCombineExecute(sql)` — executes combine SQL from dialog, creates a uniquely named table (`combined_1`, `combined_2`, etc.) via `nextCombinedName()` — never overwrites user-loaded tables
-- `handleColumnOperation(sql)` — executes arbitrary SQL for column transforms
+- `handleDataOperation(sql)` — executes arbitrary SQL for data transforms (column/row operations)
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
 - Layout: `Sidebar + DataGrid + FilterPanel + StatusBar + CombineDialog`
@@ -120,7 +120,13 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded, including combined tables) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change
 - "Combine N Selected" button (enabled when 2+ tables selected, passes selected names to `onCombine`)
 - Column visibility checkboxes
-- Column Operation dialog with 11 operation types:
+- "Data Operations" button opens `DataOperationsDialog`
+- Filter panel toggle button
+
+### DataOperationsDialog.tsx — Data Operations Modal
+- Extracted from Sidebar; self-contained dialog for column/row transforms
+- Props: `isOpen`, `onClose`, `activeTable`, `schema`, `onApply(sql)`
+- 11 operation types:
   - `regex_extract` — regexp_extract() with user-provided pattern + capture group index; casts source to VARCHAR first so it works on any data type
   - `trim` — TRIM()
   - `upper` / `lower` — UPPER() / LOWER()
@@ -131,7 +137,8 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
   - `delete_column` — removes a column from the table; prevents deleting the last column; red "Delete" button with warning callout
   - `combine_columns` — concatenates 2+ selected columns with an optional separator; all columns cast to VARCHAR; multi-select checkboxes with numbered order badges
   - `rename_column` — renames a column using `ALTER TABLE ... RENAME COLUMN`; requires source column and new name; no preview
-- Filter panel toggle button
+- Live preview: fetches 3 sample rows and shows before/after for most operations
+- Builds complete SQL internally and passes to `onApply`
 
 ### DataGrid.tsx — Virtualized Scrollable Data Grid
 - **Virtual scrolling** via `@tanstack/react-virtual` `useVirtualizer` — only renders visible rows (~30-50) plus 20 overscan rows
@@ -241,7 +248,7 @@ ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, s
 7. `getRow(index)` returns cached row data synchronously; unloaded rows show "..." placeholder
 8. **Delete**: User hovers table row → clicks `x` → confirms in Alert → `DROP TABLE IF EXISTS` via IPC, removed from state
 9. **Combine**: User selects tables via checkboxes (combined tables excluded) → clicks "Combine N Selected" → CombineDialog opens with only selected tables → maps output←input columns → generates mapped UNION ALL SQL (with auto VARCHAR cast for type mismatches) → creates uniquely named `combined_N` table
-10. Column operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
+10. Data operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
 11. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')` — combined tables are excluded from the export UNION ALL to prevent row duplication
 
 ## Keyboard Shortcuts
