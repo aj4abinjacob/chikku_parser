@@ -16,6 +16,13 @@ function makeTableName(filePath: string): string {
   return base.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
+/** Generate a unique "combined_N" table name that doesn't collide with existing tables */
+function nextCombinedName(existingNames: Set<string>): string {
+  let i = 1;
+  while (existingNames.has(`combined_${i}`)) i++;
+  return `combined_${i}`;
+}
+
 export function App(): React.ReactElement {
   const [tables, setTables] = useState<LoadedTable[]>([]);
   const [activeTable, setActiveTable] = useState<string | null>(null);
@@ -89,9 +96,11 @@ export function App(): React.ReactElement {
       if (!at) return;
       const savePath = await window.api.saveDialog();
       if (!savePath) return;
+      // Exclude auto-generated combined tables from the export UNION ALL
+      const sourceTables = t.filter((tb) => tb.filePath !== "(combined)");
       const sql =
-        t.length > 1
-          ? buildCombineQuery(t.map((tb) => tb.tableName))
+        sourceTables.length > 1
+          ? buildCombineQuery(sourceTables.map((tb) => tb.tableName))
           : `SELECT * FROM "${at}"`;
       await window.api.exportCSV(sql, savePath);
     });
@@ -144,25 +153,25 @@ export function App(): React.ReactElement {
   // Execute the combine SQL produced by CombineDialog
   const handleCombineExecute = useCallback(async (sql: string) => {
     try {
+      const existingNames = new Set(tablesRef.current.map((t) => t.tableName));
+      const combinedName = nextCombinedName(existingNames);
+
       await window.api.exec(
-        `CREATE OR REPLACE TABLE "combined" AS ${sql}`
+        `CREATE OR REPLACE TABLE "${combinedName}" AS ${sql}`
       );
-      const desc = await window.api.describe("combined");
+      const desc = await window.api.describe(combinedName);
       const countResult = await window.api.query(
-        `SELECT COUNT(*) as count FROM "combined"`
+        `SELECT COUNT(*) as count FROM "${combinedName}"`
       );
       const combinedTable: LoadedTable = {
-        tableName: "combined",
+        tableName: combinedName,
         filePath: "(combined)",
         schema: desc,
         rowCount: Number(countResult[0].count),
       };
 
-      setTables((prev) => {
-        const without = prev.filter((t) => t.tableName !== "combined");
-        return [...without, combinedTable];
-      });
-      setActiveTable("combined");
+      setTables((prev) => [...prev, combinedTable]);
+      setActiveTable(combinedName);
       setViewState((prev) => ({
         ...prev,
         filters: [],
@@ -347,7 +356,7 @@ export function App(): React.ReactElement {
       <CombineDialog
         isOpen={combineDialogOpen}
         tables={tables.filter(
-          (t) => t.tableName !== "combined" && combineTableNames.includes(t.tableName)
+          (t) => combineTableNames.includes(t.tableName)
         )}
         onClose={() => setCombineDialogOpen(false)}
         onCombine={handleCombineExecute}

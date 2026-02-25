@@ -106,7 +106,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `loadFiles(filePaths, replace)` — loads CSVs into DuckDB, updates table list
 - `handleDeleteTable(tableName)` — drops table from DuckDB via `DROP TABLE IF EXISTS`, removes from state, switches active table if needed
 - `handleCombineOpen(selectedNames)` — stores selected table names, opens CombineDialog with only those tables
-- `handleCombineExecute(sql)` — executes combine SQL from dialog, creates "combined" table
+- `handleCombineExecute(sql)` — executes combine SQL from dialog, creates a uniquely named table (`combined_1`, `combined_2`, etc.) via `nextCombinedName()` — never overwrites user-loaded tables
 - `handleColumnOperation(sql)` — executes arbitrary SQL for column transforms
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
@@ -115,7 +115,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Sidebar.tsx — Left Panel
 - Lists loaded tables with row counts (click to switch active table)
 - **Delete table**: hover-reveal `x` button on each table row; opens BlueprintJS `Alert` confirmation before calling `onDeleteTable`
-- **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change
+- **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded, including combined tables) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change
 - "Combine N Selected" button (enabled when 2+ tables selected, passes selected names to `onCombine`)
 - Column visibility checkboxes
 - Column Operation dialog with 11 operation types:
@@ -167,9 +167,12 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Right panel**: All unique columns across tables as clickable buttons
   - Color-coded: outlined (unused), green/SUCCESS (used once), red/DANGER (used 2+)
   - Tooltip on hover shows which tables contain the column
-- "Fill Similar" button: auto-maps columns present in ALL loaded tables
+- "Fill Common" button: auto-maps columns present in ALL loaded tables
 - "Add Row" button: manual mapping
-- Validation: empty outputs, duplicate outputs, empty inputs, duplicate input usage
+- One-column-per-table constraint: only one input column per source table per mapping (explained in UI hint)
+- Validation: empty outputs, duplicate outputs, empty inputs, duplicate input usage, input columns must exist in at least one table
+- Warnings (non-blocking): empty tables (0 rows), all-NULL output columns
+- Type safety: passes column type info to SQL builder; mismatched types across tables are auto-cast to VARCHAR
 - Generates SQL via `buildMappedCombineQuery()`
 
 ### StatusBar.tsx — Bottom Info Bar
@@ -209,7 +212,8 @@ ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, s
 | `buildSelectQuery(tableName, viewState)` | SELECT with columns, WHERE, ORDER BY (no LIMIT/OFFSET — used for export) |
 | `buildFilterClause(filter)` | Single FilterCondition → SQL WHERE clause (internal) |
 | `buildCombineQuery(tableNames[])` | Simple `SELECT * ... UNION ALL` (used by export) |
-| `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases and NULL for missing columns |
+| `escapeIdent(name)` | Escape a SQL identifier by doubling embedded double quotes |
+| `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases, NULL for missing columns, auto VARCHAR cast on type mismatch, trimmed output names |
 | `buildChunkQuery(tableName, columns, filters, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
 | `buildCountQuery(tableName, filters[])` | `SELECT COUNT(*) ... WHERE` for total row count |
 
@@ -234,9 +238,9 @@ ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, s
 6. Chunks far from the viewport are evicted (LRU, max 20 chunks = ~20K rows in memory)
 7. `getRow(index)` returns cached row data synchronously; unloaded rows show "..." placeholder
 8. **Delete**: User hovers table row → clicks `x` → confirms in Alert → `DROP TABLE IF EXISTS` via IPC, removed from state
-9. **Combine**: User selects tables via checkboxes → clicks "Combine N Selected" → CombineDialog opens with only selected tables → maps output←input columns → generates mapped UNION ALL SQL → creates "combined" table
+9. **Combine**: User selects tables via checkboxes (combined tables excluded) → clicks "Combine N Selected" → CombineDialog opens with only selected tables → maps output←input columns → generates mapped UNION ALL SQL (with auto VARCHAR cast for type mismatches) → creates uniquely named `combined_N` table
 10. Column operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
-11. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')`
+11. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')` — combined tables are excluded from the export UNION ALL to prevent row duplication
 
 ## Keyboard Shortcuts
 

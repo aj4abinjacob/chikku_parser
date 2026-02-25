@@ -1,6 +1,14 @@
 import { FilterCondition, ViewState } from "../types";
 
 /**
+ * Escape a SQL identifier by doubling any embedded double quotes.
+ * e.g. column"name → "column""name"
+ */
+export function escapeIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
  * Build a SELECT query from view state against a given table.
  */
 export function buildSelectQuery(
@@ -9,10 +17,10 @@ export function buildSelectQuery(
 ): string {
   const columns =
     viewState.visibleColumns.length > 0
-      ? viewState.visibleColumns.map((c) => `"${c}"`).join(", ")
+      ? viewState.visibleColumns.map((c) => escapeIdent(c)).join(", ")
       : "*";
 
-  let sql = `SELECT ${columns} FROM "${tableName}"`;
+  let sql = `SELECT ${columns} FROM ${escapeIdent(tableName)}`;
 
   // WHERE clause from filters
   const whereClauses = viewState.filters
@@ -25,14 +33,14 @@ export function buildSelectQuery(
 
   // ORDER BY
   if (viewState.sortColumn) {
-    sql += ` ORDER BY "${viewState.sortColumn}" ${viewState.sortDirection}`;
+    sql += ` ORDER BY ${escapeIdent(viewState.sortColumn)} ${viewState.sortDirection}`;
   }
 
   return sql;
 }
 
 function buildFilterClause(filter: FilterCondition): string {
-  const col = `"${filter.column}"`;
+  const col = escapeIdent(filter.column);
 
   if (filter.operator === "IS NULL") return `${col} IS NULL`;
   if (filter.operator === "IS NOT NULL") return `${col} IS NOT NULL`;
@@ -84,10 +92,10 @@ function buildFilterClause(filter: FilterCondition): string {
  */
 export function buildCombineQuery(tableNames: string[]): string {
   if (tableNames.length === 0) return "";
-  if (tableNames.length === 1) return `SELECT * FROM "${tableNames[0]}"`;
+  if (tableNames.length === 1) return `SELECT * FROM ${escapeIdent(tableNames[0])}`;
 
   return tableNames
-    .map((t) => `SELECT * FROM "${t}"`)
+    .map((t) => `SELECT * FROM ${escapeIdent(t)}`)
     .join("\nUNION ALL\n");
 }
 
@@ -97,23 +105,51 @@ export function buildCombineQuery(tableNames: string[]): string {
  * Uses NULL for columns not present in a given table.
  */
 export function buildMappedCombineQuery(
-  tables: { tableName: string; columnNames: string[] }[],
+  tables: { tableName: string; columnNames: string[]; columnTypes?: Map<string, string> }[],
   mappings: { outputColumn: string; inputColumns: string[] }[]
 ): string {
   if (tables.length === 0 || mappings.length === 0) return "";
 
+  // Trim output column names to avoid accidental whitespace in identifiers
+  const trimmedMappings = mappings.map((m) => ({
+    ...m,
+    outputColumn: m.outputColumn.trim(),
+  }));
+
+  // Determine if a mapping has type mismatches across tables — if so, cast all to VARCHAR
+  const needsCast = new Map<number, boolean>();
+  for (let mi = 0; mi < trimmedMappings.length; mi++) {
+    const mapping = trimmedMappings[mi];
+    const typesFound = new Set<string>();
+    for (const table of tables) {
+      const matched = mapping.inputColumns.find((ic) =>
+        table.columnNames.includes(ic)
+      );
+      if (matched && table.columnTypes) {
+        const colType = table.columnTypes.get(matched);
+        if (colType) typesFound.add(colType.toUpperCase());
+      }
+    }
+    needsCast.set(mi, typesFound.size > 1);
+  }
+
   const selects = tables.map((table) => {
-    const columns = mappings.map((mapping) => {
+    const columns = trimmedMappings.map((mapping, mi) => {
       const matchedInput = mapping.inputColumns.find((ic) =>
         table.columnNames.includes(ic)
       );
+      const outIdent = escapeIdent(mapping.outputColumn);
       if (matchedInput) {
-        return `"${matchedInput}" AS "${mapping.outputColumn}"`;
+        const inIdent = escapeIdent(matchedInput);
+        if (needsCast.get(mi)) {
+          return `CAST(${inIdent} AS VARCHAR) AS ${outIdent}`;
+        }
+        return `${inIdent} AS ${outIdent}`;
       } else {
-        return `NULL AS "${mapping.outputColumn}"`;
+        return `NULL AS ${outIdent}`;
       }
     });
-    return `SELECT ${columns.join(", ")} FROM "${table.tableName}"`;
+    return `SELECT ${columns.join(", ")} FROM ${escapeIdent(table.tableName)}`;
   });
 
   return selects.join("\nUNION ALL\n");
@@ -133,10 +169,10 @@ export function buildChunkQuery(
 ): string {
   const columns =
     visibleColumns.length > 0
-      ? visibleColumns.map((c) => `"${c}"`).join(", ")
+      ? visibleColumns.map((c) => escapeIdent(c)).join(", ")
       : "*";
 
-  let sql = `SELECT ${columns} FROM "${tableName}"`;
+  let sql = `SELECT ${columns} FROM ${escapeIdent(tableName)}`;
 
   const whereClauses = filters.map((f) => buildFilterClause(f)).filter(Boolean);
   if (whereClauses.length > 0) {
@@ -144,7 +180,7 @@ export function buildChunkQuery(
   }
 
   if (sortColumn) {
-    sql += ` ORDER BY "${sortColumn}" ${sortDirection}`;
+    sql += ` ORDER BY ${escapeIdent(sortColumn)} ${sortDirection}`;
   }
 
   sql += ` LIMIT ${chunkSize} OFFSET ${chunkIndex * chunkSize}`;
@@ -158,7 +194,7 @@ export function buildCountQuery(
   tableName: string,
   filters: FilterCondition[]
 ): string {
-  let sql = `SELECT COUNT(*) as total FROM "${tableName}"`;
+  let sql = `SELECT COUNT(*) as total FROM ${escapeIdent(tableName)}`;
   const whereClauses = filters.map((f) => buildFilterClause(f)).filter(Boolean);
   if (whereClauses.length > 0) {
     sql += ` WHERE ${whereClauses.join(" AND ")}`;

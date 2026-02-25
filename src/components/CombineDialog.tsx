@@ -106,8 +106,39 @@ export function CombineDialog({
         break;
       }
     }
+    // Validate that each mapping's input columns exist in at least one table
+    for (const m of mappings) {
+      for (const ic of m.inputColumns) {
+        if (!allColumns.has(ic)) {
+          errors.push(`Input column "${ic}" does not exist in any selected table`);
+          break;
+        }
+      }
+      if (errors.length > 4) break; // avoid flooding
+    }
     return errors;
-  }, [mappings]);
+  }, [mappings, allColumns]);
+
+  // Warnings (non-blocking)
+  const validationWarnings = useMemo(() => {
+    const warnings: string[] = [];
+    // Warn about tables with 0 rows
+    for (const t of tables) {
+      if (t.rowCount === 0) {
+        warnings.push(`Table "${t.tableName}" has 0 rows — it will contribute nothing to the result`);
+      }
+    }
+    // Warn about mappings where input columns don't exist in any table (all NULLs)
+    for (const m of mappings) {
+      if (m.inputColumns.length > 0) {
+        const existsInAny = m.inputColumns.some((ic) => allColumns.has(ic));
+        if (!existsInAny && m.outputColumn.trim()) {
+          warnings.push(`Output "${m.outputColumn}" — none of the input columns exist in the selected tables (will be all NULL)`);
+        }
+      }
+    }
+    return warnings;
+  }, [tables, mappings, allColumns]);
 
   // Fill similar columns — columns that exist in ALL tables
   const handleFillSimilar = useCallback(() => {
@@ -217,6 +248,7 @@ export function CombineDialog({
     const tableData = tables.map((t) => ({
       tableName: t.tableName,
       columnNames: t.schema.map((c) => c.column_name),
+      columnTypes: new Map(t.schema.map((c) => [c.column_name, c.column_type])),
     }));
     const sql = buildMappedCombineQuery(
       tableData,
@@ -272,7 +304,7 @@ export function CombineDialog({
               <h4>Column Mappings</h4>
               <Button
                 icon="automatic-updates"
-                text="Fill Similar"
+                text="Fill Common"
                 onClick={handleFillSimilar}
                 disabled={!hasSharedColumns}
                 small
@@ -286,6 +318,17 @@ export function CombineDialog({
               >
                 {validationErrors.map((e, i) => (
                   <div key={i}>{e}</div>
+                ))}
+              </Callout>
+            )}
+            {validationWarnings.length > 0 && validationErrors.length === 0 && mappings.length > 0 && (
+              <Callout
+                intent={Intent.PRIMARY}
+                icon="info-sign"
+                className="combine-validation-callout"
+              >
+                {validationWarnings.map((w, i) => (
+                  <div key={i}>{w}</div>
                 ))}
               </Callout>
             )}
@@ -371,7 +414,7 @@ export function CombineDialog({
                     <div className="combine-empty-actions">
                       <Button
                         icon="automatic-updates"
-                        text="Fill Similar Columns"
+                        text="Fill Common Columns"
                         onClick={handleFillSimilar}
                         disabled={!hasSharedColumns}
                         intent={Intent.PRIMARY}
@@ -402,6 +445,10 @@ export function CombineDialog({
           {/* Right panel: all columns alphabetically */}
           <div className="combine-columns-panel">
             <h4>Available Columns</h4>
+            <p className="combine-columns-hint">
+              Only one column per source table can be mapped to each output.
+              Clicking a column replaces any existing one from the same table.
+            </p>
             <div className="combine-column-buttons">
               {sortedColumnNames.map((colName) => {
                 const tableList = allColumns.get(colName) || [];
