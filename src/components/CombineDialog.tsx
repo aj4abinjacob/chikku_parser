@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   Button,
   Callout,
@@ -36,6 +36,8 @@ export function CombineDialog({
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [focusedMappingId, setFocusedMappingId] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<"output" | "input">("output");
+  const mappingsListRef = useRef<HTMLDivElement>(null);
+  const lastAddedIdRef = useRef<string | null>(null);
 
   // All unique columns mapped to the tables that contain them
   const allColumns = useMemo(() => {
@@ -136,6 +138,7 @@ export function CombineDialog({
     setMappings((prev) => [...prev, { id, outputColumn: "", inputColumns: [] }]);
     setFocusedMappingId(id);
     setFocusedField("output");
+    lastAddedIdRef.current = id;
   }, []);
 
   const handleRemoveMapping = useCallback(
@@ -225,6 +228,26 @@ export function CombineDialog({
     if (sql) onCombine(sql);
   }, [tables, mappings, onCombine]);
 
+  // Scroll to and focus the last added row
+  useEffect(() => {
+    if (!lastAddedIdRef.current) return;
+    const id = lastAddedIdRef.current;
+    lastAddedIdRef.current = null;
+    // Wait for the DOM to update
+    requestAnimationFrame(() => {
+      const listEl = mappingsListRef.current;
+      if (!listEl) return;
+      // Scroll the list to the very bottom so the Add Row button stays visible
+      listEl.scrollTop = listEl.scrollHeight;
+      // Focus the output input of the newly added row
+      const rowEl = listEl.querySelector(`[data-mapping-id="${id}"]`) as HTMLElement | null;
+      if (rowEl) {
+        const input = rowEl.querySelector<HTMLInputElement>("input");
+        if (input) input.focus();
+      }
+    });
+  }, [mappings]);
+
   // Reset state when dialog opens
   const handleOpening = useCallback(() => {
     setMappings([]);
@@ -247,17 +270,13 @@ export function CombineDialog({
           <div className="combine-mappings-panel">
             <div className="combine-mappings-header">
               <h4>Column Mappings</h4>
-              <div>
-                <Button
-                  icon="automatic-updates"
-                  text="Fill Similar"
-                  onClick={handleFillSimilar}
-                  disabled={!hasSharedColumns}
-                  small
-                  style={{ marginRight: 4 }}
-                />
-                <Button icon="add" text="Add Row" onClick={handleAddMapping} small />
-              </div>
+              <Button
+                icon="automatic-updates"
+                text="Fill Similar"
+                onClick={handleFillSimilar}
+                disabled={!hasSharedColumns}
+                small
+              />
             </div>
             {validationErrors.length > 0 && mappings.length > 0 && (
               <Callout
@@ -270,12 +289,13 @@ export function CombineDialog({
                 ))}
               </Callout>
             )}
-            <div className="combine-mappings-list">
+            <div className="combine-mappings-list" ref={mappingsListRef}>
               {mappings.map((m, index) => {
                 const isActive = focusedMappingId === m.id;
                 return (
                   <div
                     key={m.id}
+                    data-mapping-id={m.id}
                     className={`combine-mapping-row${isActive ? " active" : ""}`}
                     onClick={() => setFocusedMappingId(m.id)}
                   >
@@ -366,6 +386,14 @@ export function CombineDialog({
                   }
                 />
               )}
+              <Button
+                icon="add"
+                text="Add Row"
+                onClick={handleAddMapping}
+                small
+                minimal
+                style={{ alignSelf: "center", marginTop: 4 }}
+              />
             </div>
           </div>
 
