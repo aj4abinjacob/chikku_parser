@@ -79,7 +79,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (9 files)
+- `src/components/` — React components (10 files)
 - `src/hooks/` — Custom React hooks (`useChunkCache`)
 - `src/utils/` — SQL query builder utilities
 - `src/types.ts` — All TypeScript interfaces
@@ -114,9 +114,10 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `handleSampleTable(n, isPercent)` — creates a new `sample_N` table with a random sample of rows from active table using DuckDB `USING SAMPLE`; adds to tables state with `filePath: "(sample)"`
 - `handleCreateAggregateTable(sql)` — takes a SELECT SQL, generates unique `aggregate_N` name, executes `CREATE TABLE ... AS`, adds to tables state with `filePath: "(aggregate)"`
 - `handleCreatePivotTable(sql)` — takes a PIVOT SQL, generates unique `pivot_N` name, executes `CREATE TABLE ... AS (sql)`, adds to tables state with `filePath: "(pivot)"`
+- `handleLookupMerge(sql, options)` — executes a JOIN SQL for the Lookup Merge feature; if `options.replaceActive` is true, replaces the active table via `CREATE OR REPLACE TABLE`; otherwise creates a new `merge_N` table with `filePath: "(merge)"`
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
-- Layout: `Sidebar + DataGrid + FilterPanel + StatusBar + CombineDialog + PivotDialog`
+- Layout: `Sidebar + DataGrid + FilterPanel + StatusBar + CombineDialog + LookupMergeDialog`
 
 ### Sidebar.tsx — Left Panel
 - Lists loaded tables with row counts (click to switch active table)
@@ -127,6 +128,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - "Data Operations" button opens `DataOperationsDialog`
 - "Aggregate" button opens `AggregateDialog`
 - "Pivot Table" button opens `PivotDialog`
+- "Lookup Merge" button opens `LookupMergeDialog` (visible when 2+ tables loaded)
 - Filter panel toggle button
 
 ### DataOperationsDialog.tsx — Data Operations Modal
@@ -172,6 +174,20 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - "Create as Table" button materializes result as `pivot_N` table via `onCreateTable`; appears in sidebar with `filePath: "(pivot)"`
 - Reuses `aggregate-*` CSS classes; only new class: `.pivot-distinct-preview`
 - Numeric type detection via same regex as AggregateDialog
+
+### LookupMergeDialog.tsx — Lookup Merge (JOIN) Modal
+- Joins data from a right table into the active (left) table using DuckDB LEFT/INNER JOIN
+- Props: `isOpen`, `onClose`, `activeTable`, `schema`, `tables` (all loaded), `onExecute(sql, { replaceActive })`
+- **Right Table**: dropdown to select from loaded tables (excluding active)
+- **Key Columns**: composite key support — multiple `[left dropdown] ↔ [right dropdown]` pairs with add/remove
+- **Columns to Merge**: checkbox list of right-table columns (excludes key columns); Select All / Deselect All
+- **Duplicate key detection**: queries right table for duplicate keys before merge; shows warning Callout with count; checkbox to "Remove duplicates before merging" (uses `QUALIFY row_number() OVER (PARTITION BY ... ORDER BY rowid) = 1`)
+- **NULL key detection**: queries both tables for NULL keys; shows warning Callout; radio toggle for "Standard join (NULLs don't match)" vs "Match NULLs" (uses `IS NOT DISTINCT FROM`)
+- **Join Type**: radio toggle — Left Join (keep all left rows) vs Inner Join (matched only)
+- **Result Mode**: radio toggle — "Create new table" (`merge_N`) vs "Replace active table" (`CREATE OR REPLACE TABLE`)
+- "Preview" button runs the JOIN SQL with `LIMIT 10` and shows results in HTML table
+- "Merge" button executes via `onExecute` callback; merge tables appear in sidebar with `filePath: "(merge)"`
+- Reuses `aggregate-*` CSS classes; new CSS namespace: `merge-key-pairs`, `merge-key-row`, `merge-options-grid`
 
 ### DataGrid.tsx — Virtualized Scrollable Data Grid
 - **Virtual scrolling** via `@tanstack/react-virtual` `useVirtualizer` — only renders visible rows (~30-50) plus 20 overscan rows
@@ -286,7 +302,8 @@ ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, s
 12. **Remove Duplicates**: User selects columns to dedup → empty strings converted to NULL via `NULLIF()` on all VARCHAR columns in a CTE → deduped via `QUALIFY row_number() OVER (PARTITION BY ...) = 1`
 13. **Aggregate**: User opens Aggregate dialog → selects columns and aggregate functions (optionally with Group By) → clicks Run to preview results → optionally clicks "Create as Table" to materialize as `aggregate_N` table with `filePath: "(aggregate)"`
 14. **Pivot Table**: User opens Pivot dialog → selects row fields, pivot column, value fields, and aggregate function → clicks Run to preview cross-tabulation → optionally clicks "Create as Table" to materialize as `pivot_N` table with `filePath: "(pivot)"`; uses DuckDB native `PIVOT ... ON ... USING ... GROUP BY` syntax
-15. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')` — combined, sample, aggregate, and pivot tables are excluded from the export UNION ALL to prevent row duplication
+15. **Lookup Merge**: User opens Lookup Merge dialog → selects right table → maps key column pairs (composite keys supported) → selects columns to merge → system checks for duplicate/NULL keys and shows warnings with options → user chooses Left/Inner Join and result mode → "Preview" shows first 10 rows → "Merge" executes the JOIN SQL; creates `merge_N` table with `filePath: "(merge)"` or replaces active table in-place
+16. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')` — combined, sample, aggregate, pivot, and merge tables are excluded from the export UNION ALL to prevent row duplication
 
 ## Keyboard Shortcuts
 

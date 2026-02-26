@@ -44,6 +44,17 @@ function nextPivotName(existingNames: Set<string>): string {
   return `pivot_${i}`;
 }
 
+/** Generate a unique "merge_N" table name that doesn't collide with existing tables */
+function nextMergeName(existingNames: Set<string>): string {
+  let i = 1;
+  while (existingNames.has(`merge_${i}`)) i++;
+  return `merge_${i}`;
+}
+
+function escapeIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 export function App(): React.ReactElement {
   const [tables, setTables] = useState<LoadedTable[]>([]);
   const [activeTable, setActiveTable] = useState<string | null>(null);
@@ -118,7 +129,7 @@ export function App(): React.ReactElement {
       const savePath = await window.api.saveDialog();
       if (!savePath) return;
       // Exclude auto-generated combined/sample/aggregate tables from the export UNION ALL
-      const sourceTables = t.filter((tb) => tb.filePath !== "(combined)" && tb.filePath !== "(sample)" && tb.filePath !== "(aggregate)" && tb.filePath !== "(pivot)");
+      const sourceTables = t.filter((tb) => tb.filePath !== "(combined)" && tb.filePath !== "(sample)" && tb.filePath !== "(aggregate)" && tb.filePath !== "(pivot)" && tb.filePath !== "(merge)");
       const sql =
         sourceTables.length > 1
           ? buildCombineQuery(sourceTables.map((tb) => tb.tableName))
@@ -410,6 +421,63 @@ export function App(): React.ReactElement {
     []
   );
 
+  // Lookup merge: join data from another table into the active table
+  const handleLookupMerge = useCallback(
+    async (sql: string, options: { replaceActive: boolean }) => {
+      if (!activeTable) return;
+      try {
+        if (options.replaceActive) {
+          await window.api.exec(
+            `CREATE OR REPLACE TABLE ${escapeIdent(activeTable)} AS (${sql})`
+          );
+          const countResult = await window.api.query(
+            `SELECT COUNT(*) as count FROM ${escapeIdent(activeTable)}`
+          );
+          setTables((prev) =>
+            prev.map((t) =>
+              t.tableName === activeTable
+                ? { ...t, rowCount: Number(countResult[0].count) }
+                : t
+            )
+          );
+          setSchemaVersion((v) => v + 1);
+          setResetKey((k) => k + 1);
+        } else {
+          const existingNames = new Set(tablesRef.current.map((t) => t.tableName));
+          const mergeName = nextMergeName(existingNames);
+          await window.api.exec(
+            `CREATE TABLE ${escapeIdent(mergeName)} AS (${sql})`
+          );
+          const desc = await window.api.describe(mergeName);
+          const countResult = await window.api.query(
+            `SELECT COUNT(*) as count FROM ${escapeIdent(mergeName)}`
+          );
+          const mergeTable: LoadedTable = {
+            tableName: mergeName,
+            filePath: "(merge)",
+            schema: desc,
+            rowCount: Number(countResult[0].count),
+          };
+          setTables((prev) => [...prev, mergeTable]);
+          setActiveTable(mergeName);
+          setViewState((prev) => ({
+            ...prev,
+            filters: [],
+            visibleColumns: [],
+            columnOrder: [],
+            sortColumn: null,
+            sortDirection: "ASC",
+          }));
+          setResetKey((k) => k + 1);
+        }
+      } catch (err) {
+        console.error("Lookup merge error:", err);
+        throw err;
+      }
+    },
+    [activeTable]
+  );
+
   const hasData = tables.length > 0;
 
   return (
@@ -442,6 +510,7 @@ export function App(): React.ReactElement {
             onCombine={handleCombineOpen}
             onCreateAggregateTable={handleCreateAggregateTable}
             onCreatePivotTable={handleCreatePivotTable}
+            onLookupMerge={handleLookupMerge}
             onHide={() => setSidebarVisible(false)}
             filterPanelOpen={filterPanelOpen}
             onToggleFilterPanel={() => setFilterPanelOpen((v) => !v)}

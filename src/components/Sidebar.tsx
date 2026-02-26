@@ -10,6 +10,7 @@ import { LoadedTable, ColumnInfo } from "../types";
 import { DataOperationsDialog } from "./DataOperationsDialog";
 import { AggregateDialog } from "./AggregateDialog";
 import { PivotDialog } from "./PivotDialog";
+import { LookupMergeDialog } from "./LookupMergeDialog";
 
 interface SidebarProps {
   tables: LoadedTable[];
@@ -27,6 +28,7 @@ interface SidebarProps {
   onCombine: (selectedNames: string[]) => void;
   onCreateAggregateTable: (sql: string) => void;
   onCreatePivotTable: (sql: string) => void;
+  onLookupMerge: (sql: string, options: { replaceActive: boolean }) => void;
   onHide: () => void;
   onToggleFilterPanel: () => void;
 }
@@ -47,12 +49,14 @@ export function Sidebar({
   onCombine,
   onCreateAggregateTable,
   onCreatePivotTable,
+  onLookupMerge,
   onHide,
   onToggleFilterPanel,
 }: SidebarProps): React.ReactElement {
   const [dataOpDialogOpen, setDataOpDialogOpen] = useState(false);
   const [aggregateDialogOpen, setAggregateDialogOpen] = useState(false);
   const [pivotDialogOpen, setPivotDialogOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
 
@@ -267,6 +271,15 @@ export function Sidebar({
             small
             fill
           />
+          {tables.length >= 2 && (
+            <Button
+              icon="data-lineage"
+              text="Lookup Merge"
+              onClick={() => setMergeDialogOpen(true)}
+              small
+              fill
+            />
+          )}
           <Button
             icon="column-layout"
             text="Data Operations"
@@ -315,6 +328,15 @@ export function Sidebar({
         activeTable={activeTable}
         schema={schema}
         onCreateTable={onCreatePivotTable}
+      />
+
+      <LookupMergeDialog
+        isOpen={mergeDialogOpen}
+        onClose={() => setMergeDialogOpen(false)}
+        activeTable={activeTable}
+        schema={schema}
+        tables={tables}
+        onExecute={onLookupMerge}
       />
     </div>
   );
