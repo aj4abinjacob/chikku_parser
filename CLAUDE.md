@@ -112,6 +112,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `handleCombineExecute(sql)` — executes combine SQL from dialog, creates a uniquely named table (`combined_1`, `combined_2`, etc.) via `nextCombinedName()` — never overwrites user-loaded tables
 - `handleDataOperation(sql)` — executes arbitrary SQL for data transforms (column/row operations)
 - `handleSampleTable(n, isPercent)` — creates a new `sample_N` table with a random sample of rows from active table using DuckDB `USING SAMPLE`; adds to tables state with `filePath: "(sample)"`
+- `handleCreateAggregateTable(sql)` — takes a SELECT SQL, generates unique `aggregate_N` name, executes `CREATE TABLE ... AS`, adds to tables state with `filePath: "(aggregate)"`
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
 - Layout: `Sidebar + DataGrid + FilterPanel + StatusBar + CombineDialog`
@@ -123,6 +124,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - "Combine N Selected" button (enabled when 2+ tables selected, passes selected names to `onCombine`)
 - Column visibility checkboxes
 - "Data Operations" button opens `DataOperationsDialog`
+- "Aggregate" button opens `AggregateDialog`
 - Filter panel toggle button
 
 ### DataOperationsDialog.tsx — Data Operations Modal
@@ -143,6 +145,17 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
   - `remove_duplicates` — deduplicates rows based on user-selected columns; converts empty strings to NULL via `NULLIF()` on all VARCHAR columns in a CTE, then uses `QUALIFY row_number() OVER (PARTITION BY ...)` for dedup; multi-select checkboxes with Select All/Deselect All and search; preview shows row count before/after
 - Live preview: fetches 3 sample rows and shows before/after for most operations
 - Builds complete SQL internally and passes to `onApply` (or `onSampleTable` for sample_table)
+
+### AggregateDialog.tsx — Aggregate Summary Modal
+- Computes aggregate statistics (SUM, MIN, MAX, AVG, COUNT, COUNT DISTINCT, MEDIAN, STDDEV) on table columns
+- Props: `isOpen`, `onClose`, `activeTable`, `schema`, `onCreateTable(sql, filePath)`
+- **Group By** (optional): multi-select checkboxes from all columns
+- **Function selection**: checkboxes for each aggregate function
+- **Column selection**: checkboxes per column; numeric columns get all functions, non-numeric get COUNT/COUNT DISTINCT/MIN/MAX only
+- "Select All Numeric" / "Deselect All" quick buttons
+- "Run" button executes the aggregate query and shows results in an HTML table (up to 200 rows)
+- "Create as Table" button materializes result as `aggregate_N` table via `onCreateTable`; appears in sidebar with `filePath: "(aggregate)"`
+- Numeric type detection via regex: `/^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|HUGEINT|FLOAT|REAL|DOUBLE|DECIMAL|NUMERIC)/i`
 
 ### DataGrid.tsx — Virtualized Scrollable Data Grid
 - **Virtual scrolling** via `@tanstack/react-virtual` `useVirtualizer` — only renders visible rows (~30-50) plus 20 overscan rows
@@ -255,7 +268,8 @@ ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, s
 10. Data operations rebuild tables with `CREATE OR REPLACE TABLE ... AS SELECT`
 11. **Sample Table**: User selects "Sample Table" in Data Operations → chooses row count or percentage → creates a new `sample_N` table via `CREATE TABLE ... AS SELECT * FROM ... USING SAMPLE`; appears in sidebar with `filePath: "(sample)"`
 12. **Remove Duplicates**: User selects columns to dedup → empty strings converted to NULL via `NULLIF()` on all VARCHAR columns in a CTE → deduped via `QUALIFY row_number() OVER (PARTITION BY ...) = 1`
-13. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')` — combined and sample tables are excluded from the export UNION ALL to prevent row duplication
+13. **Aggregate**: User opens Aggregate dialog → selects columns and aggregate functions (optionally with Group By) → clicks Run to preview results → optionally clicks "Create as Table" to materialize as `aggregate_N` table with `filePath: "(aggregate)"`
+14. Export: `COPY (query) TO 'path' (HEADER, DELIMITER ',')` — combined, sample, and aggregate tables are excluded from the export UNION ALL to prevent row duplication
 
 ## Keyboard Shortcuts
 

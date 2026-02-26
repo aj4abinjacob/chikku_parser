@@ -8,6 +8,7 @@ import {
 } from "@blueprintjs/core";
 import { LoadedTable, ColumnInfo } from "../types";
 import { DataOperationsDialog } from "./DataOperationsDialog";
+import { AggregateDialog } from "./AggregateDialog";
 
 interface SidebarProps {
   tables: LoadedTable[];
@@ -23,6 +24,7 @@ interface SidebarProps {
   onSampleTable: (n: number, isPercent: boolean) => void;
   onDeleteTable: (tableName: string) => void;
   onCombine: (selectedNames: string[]) => void;
+  onCreateAggregateTable: (sql: string) => void;
   onHide: () => void;
   onToggleFilterPanel: () => void;
 }
@@ -41,10 +43,12 @@ export function Sidebar({
   onSampleTable,
   onDeleteTable,
   onCombine,
+  onCreateAggregateTable,
   onHide,
   onToggleFilterPanel,
 }: SidebarProps): React.ReactElement {
   const [dataOpDialogOpen, setDataOpDialogOpen] = useState(false);
+  const [aggregateDialogOpen, setAggregateDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
 
@@ -246,6 +250,13 @@ export function Sidebar({
             fill
           />
           <Button
+            icon="grouped-bar-chart"
+            text="Aggregate"
+            onClick={() => setAggregateDialogOpen(true)}
+            small
+            fill
+          />
+          <Button
             icon="column-layout"
             text="Data Operations"
             onClick={() => setDataOpDialogOpen(true)}
@@ -277,6 +288,14 @@ export function Sidebar({
         schema={schema}
         onApply={onDataOperation}
         onSampleTable={onSampleTable}
+      />
+
+      <AggregateDialog
+        isOpen={aggregateDialogOpen}
+        onClose={() => setAggregateDialogOpen(false)}
+        activeTable={activeTable}
+        schema={schema}
+        onCreateTable={onCreateAggregateTable}
       />
     </div>
   );
