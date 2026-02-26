@@ -1386,3 +1386,37 @@ html, body, #root {
   color: #5c7080;
   letter-spacing: 0.5px;
 }
+
+.merge-rename-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.merge-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .merge-rename-original {
+    flex: 0 0 auto;
+    font-weight: 600;
+    font-size: 12px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+    color: #394b59;
+    min-width: 80px;
+  }
+
+  .merge-rename-arrow {
+    flex-shrink: 0;
+    color: #5c7080;
+    font-size: 14px;
+  }
+
+  .merge-rename-input {
+    flex: 1;
+    min-width: 0;
+    max-width: 260px;
+  }
+}

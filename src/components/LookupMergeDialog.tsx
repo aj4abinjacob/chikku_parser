@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Button,
   Checkbox,
   HTMLSelect,
+  InputGroup,
   Intent,
   Dialog,
   DialogBody,
@@ -67,6 +68,9 @@ export function LookupMergeDialog({
   // Column selection (which right-table columns to bring over)
   const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
 
+  // Column renames for conflicts (original right col name → new output name)
+  const [columnRenames, setColumnRenames] = useState<Record<string, string>>({});
+
   // Join options
   const [joinType, setJoinType] = useState<"LEFT" | "INNER">("LEFT");
   const [resultMode, setResultMode] = useState<"new" | "replace">("new");
@@ -92,6 +96,7 @@ export function LookupMergeDialog({
       setRightSchema([]);
       setKeyPairs([{ id: nextKeyPairId(), leftKey: "", rightKey: "" }]);
       setSelectedCols(new Set());
+      setColumnRenames({});
       setJoinType("LEFT");
       setResultMode("new");
       setNullHandling("exclude");
@@ -147,6 +152,42 @@ export function LookupMergeDialog({
     });
   }, [mergeableColKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Detect conflicting column names (right cols that share names with left cols)
+  const leftColNames = useMemo(
+    () => new Set(schema.map((c) => c.column_name)),
+    [schema]
+  );
+  const conflictingColumns = useMemo(
+    () => [...selectedCols].filter((col) => leftColNames.has(col)),
+    [selectedCols, leftColNames]
+  );
+
+  // Auto-populate renames when conflicts appear, clean up when they disappear
+  useEffect(() => {
+    setColumnRenames((prev) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+      for (const col of conflictingColumns) {
+        if (prev[col] !== undefined) {
+          next[col] = prev[col];
+        } else {
+          next[col] = `${col}_${rightTable || "right"}`;
+          changed = true;
+        }
+      }
+      // Check if any old keys were removed
+      if (!changed && Object.keys(prev).length !== Object.keys(next).length) {
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [conflictingColumns, rightTable]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateRename = useCallback((col: string, newName: string) => {
+    setColumnRenames((prev) => ({ ...prev, [col]: newName }));
+    setResults(null);
+  }, []);
+
   // Key pair manipulation
   const addKeyPair = useCallback(() => {
     setKeyPairs((prev) => [...prev, { id: nextKeyPairId(), leftKey: "", rightKey: "" }]);
@@ -201,8 +242,24 @@ export function LookupMergeDialog({
         return "All key pairs must have both left and right keys selected.";
     }
     if (selectedCols.size === 0) return "Select at least one column to merge.";
+    // Validate renames for conflicting columns
+    for (const col of Object.keys(columnRenames)) {
+      if (selectedCols.has(col)) {
+        const renamed = columnRenames[col]?.trim();
+        if (!renamed) return `Rename for "${col}" cannot be empty.`;
+      }
+    }
+    // Check for duplicate output names (left cols + renamed right cols)
+    const outputNames = new Set(schema.map((c) => c.column_name));
+    for (const col of selectedCols) {
+      const outputName = columnRenames[col]?.trim() || col;
+      if (outputNames.has(outputName)) {
+        return `Output column name "${outputName}" already exists. Please choose a different name for "${col}".`;
+      }
+      outputNames.add(outputName);
+    }
     return null;
-  }, [rightTable, keyPairs, selectedCols]);
+  }, [rightTable, keyPairs, selectedCols, columnRenames, schema]);
 
   // Async validation: duplicate and NULL key checks
   const runValidationChecks = useCallback(async (): Promise<boolean> => {
@@ -269,15 +326,21 @@ export function LookupMergeDialog({
       rightSource = escapeIdent(rightTable);
     }
 
-    // Selected merge columns from right table
+    // Selected merge columns from right table (with renames for conflicts)
     const rightColExprs = [...selectedCols]
-      .map((col) => `r.${escapeIdent(col)}`)
+      .map((col) => {
+        const renamed = columnRenames[col];
+        if (renamed && renamed !== col) {
+          return `r.${escapeIdent(col)} AS ${escapeIdent(renamed)}`;
+        }
+        return `r.${escapeIdent(col)}`;
+      })
       .join(", ");
 
     const joinKeyword = joinType === "LEFT" ? "LEFT JOIN" : "INNER JOIN";
 
     return `SELECT l.*, ${rightColExprs} FROM ${escapeIdent(activeTable)} l ${joinKeyword} ${rightSource} r ON ${onClauses.join(" AND ")}`;
-  }, [activeTable, rightTable, keyPairs, selectedCols, joinType, nullHandling, removeDuplicates]);
+  }, [activeTable, rightTable, keyPairs, selectedCols, joinType, nullHandling, removeDuplicates, columnRenames]);
 
   // Preview
   const handlePreview = useCallback(async () => {
@@ -476,6 +539,31 @@ export function LookupMergeDialog({
                 )}
               </div>
             </div>
+          )}
+
+          {/* Column name conflicts */}
+          {conflictingColumns.length > 0 && (
+            <Callout intent={Intent.WARNING} icon="warning-sign" style={{ marginTop: 6 }}>
+              <strong>{conflictingColumns.length}</strong> column{conflictingColumns.length !== 1 ? "s" : ""} in
+              the right table {conflictingColumns.length !== 1 ? "have" : "has"} the same name
+              {conflictingColumns.length !== 1 ? "s" : ""} as in the left table.
+              Rename them to avoid ambiguity:
+              <div className="merge-rename-list">
+                {conflictingColumns.map((col) => (
+                  <div key={col} className="merge-rename-row">
+                    <span className="merge-rename-original">{col}</span>
+                    <span className="merge-rename-arrow">&rarr;</span>
+                    <InputGroup
+                      value={columnRenames[col] ?? col}
+                      onChange={(e) => updateRename(col, e.target.value)}
+                      small
+                      className="merge-rename-input"
+                      placeholder="New column name"
+                    />
+                  </div>
+                ))}
+              </div>
+            </Callout>
           )}
 
           {/* Section 4: Warnings */}
