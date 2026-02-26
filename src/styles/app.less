@@ -525,6 +525,79 @@ html, body, #root {
 }
 
 
+// ── Filter group (recursive AND/OR) ──
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &.filter-group-nested {
+    border-left: 3px solid #137cbd;
+    margin-left: 4px;
+    padding-left: 10px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    background: rgba(19, 124, 189, 0.03);
+    border-radius: 0 4px 4px 0;
+  }
+
+  // Depth-based border colors
+  &.filter-group-nested[data-depth="1"] {
+    border-left-color: #7157d9; // purple
+    background: rgba(113, 87, 217, 0.03);
+  }
+  &.filter-group-nested[data-depth="2"] {
+    border-left-color: #d9822b; // orange
+    background: rgba(217, 130, 43, 0.03);
+  }
+  &.filter-group-nested[data-depth="3"] {
+    border-left-color: #0f9960; // green
+    background: rgba(15, 153, 96, 0.03);
+  }
+}
+
+.filter-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+
+  .filter-group-logic-btn {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    min-height: 22px;
+    padding: 0 8px;
+  }
+
+  .filter-group-delete {
+    opacity: 0.5;
+    transition: opacity 0.15s;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+
+.filter-group-children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+
+  .bp4-button {
+    font-size: 11px;
+  }
+}
+
 // ── IN value picker ──
 .in-value-picker-wrapper {
   width: 300px;

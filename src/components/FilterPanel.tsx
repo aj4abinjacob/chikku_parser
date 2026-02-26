@@ -8,7 +8,15 @@ import {
   Intent,
   Tag,
 } from "@blueprintjs/core";
-import { ColumnInfo, FilterCondition } from "../types";
+import {
+  ColumnInfo,
+  FilterCondition,
+  FilterGroup,
+  FilterNode,
+  isFilterGroup,
+  hasActiveFilters,
+  countConditions,
+} from "../types";
 
 const OPERATORS: { value: FilterCondition["operator"]; label: string }[] = [
   { value: "CONTAINS", label: "contains" },
@@ -35,10 +43,131 @@ const MIN_PANEL_HEIGHT = 80;
 const MAX_PANEL_HEIGHT = 500;
 const DEFAULT_PANEL_HEIGHT = 260;
 
-interface DraftFilter {
+// ── Draft types with IDs for React keys ──
+
+interface DraftFilterCondition {
+  id: string;
   column: string;
   operator: FilterCondition["operator"];
   value: string;
+}
+
+interface DraftFilterGroup {
+  id: string;
+  logic: "AND" | "OR";
+  children: DraftFilterNode[];
+}
+
+type DraftFilterNode = DraftFilterCondition | DraftFilterGroup;
+
+function isDraftGroup(node: DraftFilterNode): node is DraftFilterGroup {
+  return "logic" in node && "children" in node;
+}
+
+let nextId = 1;
+function genId(): string {
+  return `fnode_${nextId++}`;
+}
+
+// ── Conversion helpers ──
+
+function convertToDraft(group: FilterGroup): DraftFilterGroup {
+  return {
+    id: genId(),
+    logic: group.logic,
+    children: group.children.map((child) => {
+      if (isFilterGroup(child)) {
+        return convertToDraft(child);
+      }
+      return {
+        id: genId(),
+        column: child.column,
+        operator: child.operator,
+        value: child.value,
+      } as DraftFilterCondition;
+    }),
+  };
+}
+
+function convertFromDraft(group: DraftFilterGroup): FilterGroup {
+  const children: FilterNode[] = [];
+  for (const child of group.children) {
+    if (isDraftGroup(child)) {
+      const nested = convertFromDraft(child);
+      // Keep groups even if empty — let SQL builder handle it
+      children.push(nested);
+    } else {
+      // Only include conditions that have a column set and value (or no-value operator)
+      if (child.column && (NO_VALUE_OPS.has(child.operator) || child.value.trim() !== "")) {
+        children.push({
+          column: child.column,
+          operator: child.operator,
+          value: child.value,
+        });
+      }
+    }
+  }
+  return { logic: group.logic, children };
+}
+
+// ── Recursive update helpers ──
+
+function updateNodeById(
+  root: DraftFilterGroup,
+  targetId: string,
+  updater: (node: DraftFilterNode) => DraftFilterNode
+): DraftFilterGroup {
+  if (root.id === targetId) {
+    return updater(root) as DraftFilterGroup;
+  }
+  return {
+    ...root,
+    children: root.children.map((child) => {
+      if (child.id === targetId) {
+        return updater(child);
+      }
+      if (isDraftGroup(child)) {
+        return updateNodeById(child, targetId, updater);
+      }
+      return child;
+    }),
+  };
+}
+
+function addChildToGroup(
+  root: DraftFilterGroup,
+  parentId: string,
+  newChild: DraftFilterNode
+): DraftFilterGroup {
+  if (root.id === parentId) {
+    return { ...root, children: [...root.children, newChild] };
+  }
+  return {
+    ...root,
+    children: root.children.map((child) => {
+      if (isDraftGroup(child)) {
+        return addChildToGroup(child, parentId, newChild);
+      }
+      return child;
+    }),
+  };
+}
+
+function removeNodeById(
+  root: DraftFilterGroup,
+  targetId: string
+): DraftFilterGroup {
+  return {
+    ...root,
+    children: root.children
+      .filter((child) => child.id !== targetId)
+      .map((child) => {
+        if (isDraftGroup(child)) {
+          return removeNodeById(child, targetId);
+        }
+        return child;
+      }),
+  };
 }
 
 // ── Unique-value multi-select for IN operator ──
@@ -46,7 +175,7 @@ interface DraftFilter {
 interface InValuePickerProps {
   tableName: string;
   column: string;
-  selectedValues: string; // comma-separated
+  selectedValues: string;
   onChange: (value: string) => void;
 }
 
@@ -65,16 +194,13 @@ function InValuePicker({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
 
-  // Reset list filter when dropdown closes
   useEffect(() => {
     if (!open) setListFilter("all");
   }, [open]);
 
-  // Position the dropdown and close on outside click
   useEffect(() => {
     if (!open) return;
 
-    // Calculate position from anchor
     if (anchorRef.current) {
       const rect = anchorRef.current.getBoundingClientRect();
       setPos({
@@ -98,7 +224,6 @@ function InValuePicker({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Fetch distinct values when dropdown opens
   useEffect(() => {
     if (!open || !tableName || !column) return;
     setLoading(true);
@@ -239,13 +364,247 @@ function InValuePicker({
   );
 }
 
+// ── Filter Condition Row (leaf) ──
+
+interface FilterConditionRowProps {
+  draft: DraftFilterCondition;
+  columns: ColumnInfo[];
+  activeTable: string | null;
+  onUpdate: (id: string, patch: Partial<DraftFilterCondition>) => void;
+  onRemove: (id: string) => void;
+  onApply: () => void;
+}
+
+function FilterConditionRow({
+  draft,
+  columns,
+  activeTable,
+  onUpdate,
+  onRemove,
+  onApply,
+}: FilterConditionRowProps): React.ReactElement {
+  return (
+    <div className="filter-row">
+      <HTMLSelect
+        className="filter-col-select"
+        value={draft.column}
+        onChange={(e) =>
+          onUpdate(draft.id, { column: e.target.value, value: "" })
+        }
+      >
+        {columns.map((c) => (
+          <option key={c.column_name} value={c.column_name}>
+            {c.column_name}
+          </option>
+        ))}
+      </HTMLSelect>
+
+      <HTMLSelect
+        className="filter-op-select"
+        value={draft.operator}
+        onChange={(e) =>
+          onUpdate(draft.id, {
+            operator: e.target.value as FilterCondition["operator"],
+            value:
+              e.target.value === "IN" || draft.operator === "IN"
+                ? ""
+                : draft.value,
+          })
+        }
+      >
+        {OPERATORS.map((op) => (
+          <option key={op.value} value={op.value}>
+            {op.label}
+          </option>
+        ))}
+      </HTMLSelect>
+
+      {!NO_VALUE_OPS.has(draft.operator) &&
+        (draft.operator === "IN" && activeTable ? (
+          <InValuePicker
+            tableName={activeTable}
+            column={draft.column}
+            selectedValues={draft.value}
+            onChange={(value) => onUpdate(draft.id, { value })}
+          />
+        ) : (
+          <InputGroup
+            className="filter-value-input"
+            value={draft.value}
+            onChange={(e) =>
+              onUpdate(draft.id, { value: e.target.value })
+            }
+            placeholder={
+              draft.operator === "CONTAINS"
+                ? "text or regex"
+                : "value"
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onApply();
+            }}
+          />
+        ))}
+
+      <Button
+        icon="small-cross"
+        minimal
+        small
+        onClick={() => onRemove(draft.id)}
+      />
+    </div>
+  );
+}
+
+// ── Filter Group Renderer (recursive) ──
+
+interface FilterGroupRendererProps {
+  group: DraftFilterGroup;
+  columns: ColumnInfo[];
+  activeTable: string | null;
+  depth: number;
+  isRoot: boolean;
+  onUpdateRoot: (updater: (root: DraftFilterGroup) => DraftFilterGroup) => void;
+  onApply: () => void;
+}
+
+function FilterGroupRenderer({
+  group,
+  columns,
+  activeTable,
+  depth,
+  isRoot,
+  onUpdateRoot,
+  onApply,
+}: FilterGroupRendererProps): React.ReactElement {
+  const depthIndex = depth % 4;
+
+  const handleToggleLogic = () => {
+    onUpdateRoot((root) =>
+      updateNodeById(root, group.id, (node) => ({
+        ...(node as DraftFilterGroup),
+        logic: (node as DraftFilterGroup).logic === "AND" ? "OR" : "AND",
+      })) as DraftFilterGroup
+    );
+  };
+
+  const handleAddCondition = () => {
+    const col = columns.length > 0 ? columns[0].column_name : "";
+    const newCond: DraftFilterCondition = {
+      id: genId(),
+      column: col,
+      operator: "CONTAINS",
+      value: "",
+    };
+    onUpdateRoot((root) => addChildToGroup(root, group.id, newCond));
+  };
+
+  const handleAddSubGroup = () => {
+    const newGroup: DraftFilterGroup = {
+      id: genId(),
+      logic: group.logic === "AND" ? "OR" : "AND",
+      children: [],
+    };
+    onUpdateRoot((root) => addChildToGroup(root, group.id, newGroup));
+  };
+
+  const handleRemoveChild = (childId: string) => {
+    onUpdateRoot((root) => removeNodeById(root, childId));
+  };
+
+  const handleUpdateCondition = (id: string, patch: Partial<DraftFilterCondition>) => {
+    onUpdateRoot((root) =>
+      updateNodeById(root, id, (node) => ({ ...node, ...patch })) as DraftFilterGroup
+    );
+  };
+
+  const handleRemoveSelf = () => {
+    onUpdateRoot((root) => removeNodeById(root, group.id));
+  };
+
+  return (
+    <div
+      className={`filter-group ${isRoot ? "filter-group-root" : "filter-group-nested"}`}
+      data-depth={depthIndex}
+    >
+      <div className="filter-group-header">
+        <Button
+          small
+          minimal
+          className="filter-group-logic-btn"
+          intent={group.logic === "OR" ? Intent.WARNING : Intent.PRIMARY}
+          text={group.logic}
+          onClick={handleToggleLogic}
+          title={`Click to switch to ${group.logic === "AND" ? "OR" : "AND"}`}
+        />
+        {!isRoot && (
+          <Button
+            className="filter-group-delete"
+            icon="small-cross"
+            minimal
+            small
+            onClick={handleRemoveSelf}
+            title="Remove group"
+          />
+        )}
+      </div>
+
+      <div className="filter-group-children">
+        {group.children.map((child) => {
+          if (isDraftGroup(child)) {
+            return (
+              <FilterGroupRenderer
+                key={child.id}
+                group={child}
+                columns={columns}
+                activeTable={activeTable}
+                depth={depth + 1}
+                isRoot={false}
+                onUpdateRoot={onUpdateRoot}
+                onApply={onApply}
+              />
+            );
+          }
+          return (
+            <FilterConditionRow
+              key={child.id}
+              draft={child}
+              columns={columns}
+              activeTable={activeTable}
+              onUpdate={handleUpdateCondition}
+              onRemove={handleRemoveChild}
+              onApply={onApply}
+            />
+          );
+        })}
+      </div>
+
+      <div className="filter-group-actions">
+        <Button
+          icon="add"
+          text="Condition"
+          small
+          minimal
+          onClick={handleAddCondition}
+        />
+        <Button
+          icon="group-objects"
+          text="Sub-group"
+          small
+          minimal
+          onClick={handleAddSubGroup}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Filter Panel ──
 
 interface FilterPanelProps {
   columns: ColumnInfo[];
-  activeFilters: FilterCondition[];
+  activeFilters: FilterGroup;
   activeTable: string | null;
-  onApplyFilters: (filters: FilterCondition[]) => void;
+  onApplyFilters: (filters: FilterGroup) => void;
 }
 
 export function FilterPanel({
@@ -254,7 +613,9 @@ export function FilterPanel({
   activeTable,
   onApplyFilters,
 }: FilterPanelProps): React.ReactElement {
-  const [drafts, setDrafts] = useState<DraftFilter[]>([]);
+  const [draftRoot, setDraftRoot] = useState<DraftFilterGroup>(() =>
+    convertToDraft(activeFilters)
+  );
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const isDragging = useRef(false);
   const startY = useRef(0);
@@ -262,13 +623,7 @@ export function FilterPanel({
 
   // Sync drafts when active filters change externally (e.g. table switch)
   useEffect(() => {
-    setDrafts(
-      activeFilters.map((f) => ({
-        column: f.column,
-        operator: f.operator,
-        value: f.value,
-      }))
-    );
+    setDraftRoot(convertToDraft(activeFilters));
   }, [activeFilters]);
 
   // ── Resize drag handlers ──
@@ -310,52 +665,27 @@ export function FilterPanel({
     };
   }, []);
 
-  const addFilter = () => {
-    const col = columns.length > 0 ? columns[0].column_name : "";
-    setDrafts((prev) => [
-      ...prev,
-      { column: col, operator: "CONTAINS", value: "" },
-    ]);
-  };
-
-  const removeFilter = (index: number) => {
-    setDrafts((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const updateFilter = (index: number, patch: Partial<DraftFilter>) => {
-    setDrafts((prev) =>
-      prev.map((f, i) => (i === index ? { ...f, ...patch } : f))
-    );
-  };
+  const handleUpdateRoot = useCallback(
+    (updater: (root: DraftFilterGroup) => DraftFilterGroup) => {
+      setDraftRoot((prev) => updater(prev));
+    },
+    []
+  );
 
   const clearAll = () => {
-    setDrafts([]);
+    setDraftRoot({ id: genId(), logic: "AND", children: [] });
   };
 
   const applyFilters = () => {
-    const valid = drafts.filter(
-      (d) =>
-        d.column &&
-        (NO_VALUE_OPS.has(d.operator) || d.value.trim() !== "")
-    );
-    onApplyFilters(
-      valid.map((d) => ({
-        column: d.column,
-        operator: d.operator,
-        value: d.value,
-      }))
-    );
+    onApplyFilters(convertFromDraft(draftRoot));
   };
 
   const isDirty =
-    JSON.stringify(drafts) !==
-    JSON.stringify(
-      activeFilters.map((f) => ({
-        column: f.column,
-        operator: f.operator,
-        value: f.value,
-      }))
-    );
+    JSON.stringify(convertFromDraft(draftRoot)) !==
+    JSON.stringify(activeFilters);
+
+  const activeCount = countConditions(activeFilters);
+  const draftHasContent = draftRoot.children.length > 0;
 
   return (
     <div className="filter-panel" style={{ height: panelHeight }}>
@@ -367,21 +697,14 @@ export function FilterPanel({
       <div className="filter-panel-header">
         <div className="filter-panel-header-left">
           <span className="filter-panel-title">Filters</span>
-          {activeFilters.length > 0 && (
+          {activeCount > 0 && (
             <Tag minimal round intent={Intent.PRIMARY}>
-              {activeFilters.length} active
+              {activeCount} active
             </Tag>
           )}
         </div>
         <div className="filter-panel-header-right">
-          <Button
-            icon="add"
-            text="Add Filter"
-            small
-            minimal
-            onClick={addFilter}
-          />
-          {drafts.length > 0 && (
+          {draftHasContent && (
             <Button
               icon="cross"
               text="Clear All"
@@ -390,93 +713,29 @@ export function FilterPanel({
               onClick={clearAll}
             />
           )}
-          {drafts.length > 0 && (
+          {draftHasContent && (
             <Button
               intent={Intent.PRIMARY}
               text="Apply Filters"
               small
               onClick={applyFilters}
-              disabled={!isDirty && activeFilters.length === drafts.length}
+              disabled={!isDirty && hasActiveFilters(activeFilters)}
             />
           )}
         </div>
       </div>
 
-      {drafts.length > 0 && (
-        <div className="filter-panel-body">
-          {drafts.map((draft, i) => (
-            <div className="filter-row" key={i}>
-              <HTMLSelect
-                className="filter-col-select"
-                value={draft.column}
-                onChange={(e) =>
-                  updateFilter(i, { column: e.target.value, value: "" })
-                }
-              >
-                {columns.map((c) => (
-                  <option key={c.column_name} value={c.column_name}>
-                    {c.column_name}
-                  </option>
-                ))}
-              </HTMLSelect>
-
-              <HTMLSelect
-                className="filter-op-select"
-                value={draft.operator}
-                onChange={(e) =>
-                  updateFilter(i, {
-                    operator: e.target.value as FilterCondition["operator"],
-                    value:
-                      e.target.value === "IN" || draft.operator === "IN"
-                        ? ""
-                        : draft.value,
-                  })
-                }
-              >
-                {OPERATORS.map((op) => (
-                  <option key={op.value} value={op.value}>
-                    {op.label}
-                  </option>
-                ))}
-              </HTMLSelect>
-
-              {!NO_VALUE_OPS.has(draft.operator) &&
-                (draft.operator === "IN" && activeTable ? (
-                  <InValuePicker
-                    tableName={activeTable}
-                    column={draft.column}
-                    selectedValues={draft.value}
-                    onChange={(value) => updateFilter(i, { value })}
-                  />
-                ) : (
-                  <InputGroup
-                    className="filter-value-input"
-                    value={draft.value}
-                    onChange={(e) =>
-                      updateFilter(i, { value: e.target.value })
-                    }
-                    placeholder={
-                      draft.operator === "CONTAINS"
-                        ? "text or regex"
-                        : "value"
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") applyFilters();
-                    }}
-                  />
-                ))}
-
-              <Button
-                icon="small-cross"
-                minimal
-                small
-                onClick={() => removeFilter(i)}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
+      <div className="filter-panel-body">
+        <FilterGroupRenderer
+          group={draftRoot}
+          columns={columns}
+          activeTable={activeTable}
+          depth={0}
+          isRoot={true}
+          onUpdateRoot={handleUpdateRoot}
+          onApply={applyFilters}
+        />
+      </div>
     </div>
   );
 }

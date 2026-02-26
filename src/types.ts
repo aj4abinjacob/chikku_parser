@@ -35,6 +35,29 @@ export interface FilterCondition {
   value: string;
 }
 
+export interface FilterGroup {
+  logic: "AND" | "OR";
+  children: FilterNode[];
+}
+
+export type FilterNode = FilterCondition | FilterGroup;
+
+export function isFilterGroup(node: FilterNode): node is FilterGroup {
+  return "logic" in node && "children" in node;
+}
+
+export function hasActiveFilters(group: FilterGroup): boolean {
+  return group.children.length > 0;
+}
+
+export function countConditions(group: FilterGroup): number {
+  let count = 0;
+  for (const child of group.children) {
+    count += isFilterGroup(child) ? countConditions(child) : 1;
+  }
+  return count;
+}
+
 export interface ColumnMapping {
   id: string;
   outputColumn: string;
@@ -44,7 +67,7 @@ export interface ColumnMapping {
 export interface ViewState {
   visibleColumns: string[];
   columnOrder: string[];
-  filters: FilterCondition[];
+  filters: FilterGroup;
   sortColumn: string | null;
   sortDirection: "ASC" | "DESC";
 }

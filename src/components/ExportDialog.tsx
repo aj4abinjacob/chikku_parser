@@ -10,7 +10,7 @@ import {
   RadioGroup,
   Spinner,
 } from "@blueprintjs/core";
-import { LoadedTable, ViewState, EXCEL_MAX_ROWS, EXCEL_MAX_COLS, FileFormat } from "../types";
+import { LoadedTable, ViewState, EXCEL_MAX_ROWS, EXCEL_MAX_COLS, FileFormat, hasActiveFilters } from "../types";
 import { buildSelectQuery } from "../utils/sqlBuilder";
 
 interface ExportDialogProps {
@@ -46,7 +46,7 @@ export function ExportDialog({
   // Determine if the active table has any view modifications
   const hasViewModifications = useMemo(() => {
     if (!activeTable) return false;
-    const hasFilters = viewState.filters.length > 0;
+    const hasFilters = hasActiveFilters(viewState.filters);
     const hasSort = viewState.sortColumn !== null;
     const allCols = schema.map((c) => c.column_name);
     const hasHiddenCols = viewState.visibleColumns.length < allCols.length;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@blueprintjs/core";
-import { LoadedTable, ViewState, ColumnInfo, FilterCondition, SheetInfo } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
@@ -94,7 +94,7 @@ export function App(): React.ReactElement {
   const [viewState, setViewState] = useState<ViewState>({
     visibleColumns: [],
     columnOrder: [],
-    filters: [],
+    filters: { logic: "AND", children: [] },
     sortColumn: null,
     sortDirection: "ASC",
   });
@@ -201,7 +201,7 @@ export function App(): React.ReactElement {
 
       if (newTables.length > 0) {
         setActiveTable(newTables[0].tableName);
-        setViewState((prev) => ({ ...prev, filters: [] }));
+        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
         setResetKey((k) => k + 1);
         setFilterPanelOpen(false);
       }
@@ -228,7 +228,7 @@ export function App(): React.ReactElement {
       setTables(newTables);
       if (newTables.length > 0) {
         setActiveTable(newTables[replace ? 0 : newTables.length - selectedSheets.length].tableName);
-        setViewState((prev) => ({ ...prev, filters: [] }));
+        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
         setResetKey((k) => k + 1);
         setFilterPanelOpen(false);
       }
@@ -256,7 +256,7 @@ export function App(): React.ReactElement {
       setTables(newTables);
       if (newTables.length > 0) {
         setActiveTable(newTables[newTables.length - 1].tableName);
-        setViewState((prev) => ({ ...prev, filters: [] }));
+        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
         setResetKey((k) => k + 1);
         setFilterPanelOpen(false);
       }
@@ -308,7 +308,7 @@ export function App(): React.ReactElement {
       if (activeTableRef.current === tableName) {
         const next = remaining.length > 0 ? remaining[0].tableName : null;
         setActiveTable(next);
-        setViewState((prev) => ({ ...prev, filters: [] }));
+        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
         setResetKey((k) => k + 1);
       }
       return remaining;
@@ -346,7 +346,7 @@ export function App(): React.ReactElement {
       setActiveTable(combinedName);
       setViewState((prev) => ({
         ...prev,
-        filters: [],
+        filters: { logic: "AND", children: [] },
         visibleColumns: [],
         columnOrder: [],
         sortColumn: null,
@@ -419,7 +419,7 @@ export function App(): React.ReactElement {
   }, []);
 
   // Filters
-  const handleFiltersChange = useCallback((filters: FilterCondition[]) => {
+  const handleFiltersChange = useCallback((filters: FilterGroup) => {
     setViewState((prev) => ({ ...prev, filters }));
     setResetKey((k) => k + 1);
   }, []);
@@ -465,7 +465,7 @@ export function App(): React.ReactElement {
         setActiveTable(sampleName);
         setViewState((prev) => ({
           ...prev,
-          filters: [],
+          filters: { logic: "AND", children: [] },
           visibleColumns: [],
           columnOrder: [],
           sortColumn: null,
@@ -504,7 +504,7 @@ export function App(): React.ReactElement {
         setActiveTable(aggName);
         setViewState((prev) => ({
           ...prev,
-          filters: [],
+          filters: { logic: "AND", children: [] },
           visibleColumns: [],
           columnOrder: [],
           sortColumn: null,
@@ -543,7 +543,7 @@ export function App(): React.ReactElement {
         setActiveTable(pivotName);
         setViewState((prev) => ({
           ...prev,
-          filters: [],
+          filters: { logic: "AND", children: [] },
           visibleColumns: [],
           columnOrder: [],
           sortColumn: null,
@@ -598,7 +598,7 @@ export function App(): React.ReactElement {
           setActiveTable(mergeName);
           setViewState((prev) => ({
             ...prev,
-            filters: [],
+            filters: { logic: "AND", children: [] },
             visibleColumns: [],
             columnOrder: [],
             sortColumn: null,
@@ -630,7 +630,7 @@ export function App(): React.ReactElement {
               setActiveTable(name);
               setViewState((prev) => ({
                 ...prev,
-                filters: [],
+                filters: { logic: "AND", children: [] },
                 visibleColumns: [],
                 columnOrder: [],
                 sortColumn: null,
@@ -698,7 +698,7 @@ export function App(): React.ReactElement {
       <StatusBar
         totalRows={totalRows}
         unfilteredRows={
-          viewState.filters.length > 0
+          hasActiveFilters(viewState.filters)
             ? tables.find((t) => t.tableName === activeTable)?.rowCount ?? null
             : null
         }

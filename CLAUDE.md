@@ -256,15 +256,23 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `resetKey` prop: scrolls to top and clears selection when it changes
 - Monospace font (`SF Mono`, `Menlo`, `Monaco`)
 
-### FilterPanel.tsx — Resizable Bottom Panel
+### FilterPanel.tsx — Resizable Bottom Panel with Recursive AND/OR Groups
 - Resizable via drag handle (min 80px, max 500px, default 260px)
-- Add/remove filter rows, Clear All, Apply Filters
+- **Recursive filter groups**: supports nested AND/OR grouping (e.g. `AND(cond, OR(cond, AND(cond, cond)))`)
+- Root group is always present; user can toggle its logic (AND/OR) and add conditions or sub-groups
+- **FilterGroupRenderer** — recursive component rendering logic toggle, children, "+ Condition" / "+ Sub-group" buttons, and delete button for non-root groups
+- **FilterConditionRow** — leaf component for individual filter conditions (column select, operator select, value input)
+- **Draft state model**: `DraftFilterGroup`/`DraftFilterCondition` with unique `id` fields for React keys and immutable path-based updates
+- Conversion helpers: `convertToDraft(FilterGroup)` adds ids, `convertFromDraft(DraftFilterGroup)` strips ids and removes empty conditions
+- Recursive update helpers: `updateNodeById`, `addChildToGroup`, `removeNodeById` for deep immutable updates
 - Filter operators: `=`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `NOT LIKE`, `IS NULL`, `IS NOT NULL`, `CONTAINS`, `IN`, `STARTS WITH`, `NOT STARTS WITH`, `ENDS WITH`, `NOT ENDS WITH`
 - `CONTAINS` uses `regexp_matches()` (case-insensitive)
 - `IN` operator uses InValuePicker sub-component:
   - Fetches up to 1000 distinct values from the column
   - Searchable dropdown with Select All / Select None
 - Tracks dirty state (unsaved changes indicator)
+- Depth-based visual nesting: colored left borders cycling blue → purple → orange → green via `data-depth` attribute
+- CSS classes: `.filter-group`, `.filter-group-root`, `.filter-group-nested`, `.filter-group-header`, `.filter-group-children`, `.filter-group-actions`, `.filter-group-delete`
 
 ### CombineDialog.tsx — Column Mapping Modal
 - Large dialog (90vw, max 1100px) with two-panel layout
@@ -309,8 +317,13 @@ ColumnInfo        // { column_name, column_type, null, key, default, extra }
 LoadedTable       // { tableName, filePath, schema: ColumnInfo[], rowCount }
 ColumnOperation   // { type, sourceColumn, targetColumn, params: Record<string,string> }
 FilterCondition   // { column, operator, value }
+FilterGroup       // { logic: "AND" | "OR", children: FilterNode[] }
+FilterNode        // FilterCondition | FilterGroup (recursive union)
+isFilterGroup()   // type guard: node is FilterGroup
+hasActiveFilters() // checks if group has any children
+countConditions() // recursively counts leaf conditions in a group
 ColumnMapping     // { id, outputColumn, inputColumns: string[] }
-ViewState         // { visibleColumns[], columnOrder[], filters[], sortColumn, sortDirection }
+ViewState         // { visibleColumns[], columnOrder[], filters: FilterGroup, sortColumn, sortDirection }
 FileFormat        // "csv" | "tsv" | "json" | "parquet" | "xlsx" | "xls"
 ImportOptions     // { csvDelimiter?, csvIgnoreErrors?, excelSheet? }
 SheetInfo         // { name, rowCount }
@@ -324,11 +337,12 @@ EXCEL_MAX_COLS    // 16,384
 |----------|---------|
 | `buildSelectQuery(tableName, viewState)` | SELECT with columns, WHERE, ORDER BY (no LIMIT/OFFSET — used for export) |
 | `buildFilterClause(filter)` | Single FilterCondition → SQL WHERE clause (internal) |
+| `buildFilterGroupClause(group)` | Recursive FilterGroup → SQL WHERE clause with AND/OR nesting |
 | `buildCombineQuery(tableNames[])` | Simple `SELECT * ... UNION ALL` (used by export) |
 | `escapeIdent(name)` | Escape a SQL identifier by doubling embedded double quotes |
 | `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases, NULL for missing columns, auto VARCHAR cast on type mismatch, trimmed output names |
-| `buildChunkQuery(tableName, columns, filters, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
-| `buildCountQuery(tableName, filters[])` | `SELECT COUNT(*) ... WHERE` for total row count |
+| `buildChunkQuery(tableName, columns, filters: FilterGroup, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
+| `buildCountQuery(tableName, filters: FilterGroup)` | `SELECT COUNT(*) ... WHERE` for total row count |
 
 ## Styling (`src/styles/app.less`)
 

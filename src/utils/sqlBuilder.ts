@@ -1,4 +1,4 @@
-import { FilterCondition, ViewState } from "../types";
+import { FilterCondition, FilterGroup, ViewState, isFilterGroup } from "../types";
 
 /**
  * Escape a SQL identifier by doubling any embedded double quotes.
@@ -23,12 +23,9 @@ export function buildSelectQuery(
   let sql = `SELECT ${columns} FROM ${escapeIdent(tableName)}`;
 
   // WHERE clause from filters
-  const whereClauses = viewState.filters
-    .map((f) => buildFilterClause(f))
-    .filter(Boolean);
-
-  if (whereClauses.length > 0) {
-    sql += ` WHERE ${whereClauses.join(" AND ")}`;
+  const whereClause = buildFilterGroupClause(viewState.filters);
+  if (whereClause) {
+    sql += ` WHERE ${whereClause}`;
   }
 
   // ORDER BY
@@ -85,6 +82,28 @@ function buildFilterClause(filter: FilterCondition): string {
   }
 
   return `${col} ${filter.operator} '${val}'`;
+}
+
+/**
+ * Recursively build a WHERE clause from a FilterGroup (AND/OR tree).
+ */
+export function buildFilterGroupClause(group: FilterGroup): string {
+  if (group.children.length === 0) return "";
+
+  const parts: string[] = [];
+  for (const child of group.children) {
+    if (isFilterGroup(child)) {
+      const nested = buildFilterGroupClause(child);
+      if (nested) parts.push(`(${nested})`);
+    } else {
+      const clause = buildFilterClause(child);
+      if (clause) parts.push(clause);
+    }
+  }
+
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return parts.join(` ${group.logic} `);
 }
 
 /**
@@ -161,7 +180,7 @@ export function buildMappedCombineQuery(
 export function buildChunkQuery(
   tableName: string,
   visibleColumns: string[],
-  filters: FilterCondition[],
+  filters: FilterGroup,
   sortColumn: string | null,
   sortDirection: "ASC" | "DESC",
   chunkSize: number,
@@ -174,9 +193,9 @@ export function buildChunkQuery(
 
   let sql = `SELECT ${columns} FROM ${escapeIdent(tableName)}`;
 
-  const whereClauses = filters.map((f) => buildFilterClause(f)).filter(Boolean);
-  if (whereClauses.length > 0) {
-    sql += ` WHERE ${whereClauses.join(" AND ")}`;
+  const whereClause = buildFilterGroupClause(filters);
+  if (whereClause) {
+    sql += ` WHERE ${whereClause}`;
   }
 
   if (sortColumn) {
@@ -192,12 +211,12 @@ export function buildChunkQuery(
  */
 export function buildCountQuery(
   tableName: string,
-  filters: FilterCondition[]
+  filters: FilterGroup
 ): string {
   let sql = `SELECT COUNT(*) as total FROM ${escapeIdent(tableName)}`;
-  const whereClauses = filters.map((f) => buildFilterClause(f)).filter(Boolean);
-  if (whereClauses.length > 0) {
-    sql += ` WHERE ${whereClauses.join(" AND ")}`;
+  const whereClause = buildFilterGroupClause(filters);
+  if (whereClause) {
+    sql += ` WHERE ${whereClause}`;
   }
   return sql;
 }
