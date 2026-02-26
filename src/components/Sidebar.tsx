@@ -11,6 +11,7 @@ import { DataOperationsDialog } from "./DataOperationsDialog";
 import { AggregateDialog } from "./AggregateDialog";
 import { PivotDialog } from "./PivotDialog";
 import { LookupMergeDialog } from "./LookupMergeDialog";
+import { DateConversionDialog } from "./DateConversionDialog";
 
 interface SidebarProps {
   tables: LoadedTable[];
@@ -59,6 +60,7 @@ export function Sidebar({
   const [aggregateDialogOpen, setAggregateDialogOpen] = useState(false);
   const [pivotDialogOpen, setPivotDialogOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [dateConvDialogOpen, setDateConvDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
 
@@ -290,6 +292,13 @@ export function Sidebar({
             fill
           />
           <Button
+            icon="calendar"
+            text="Date Conversion"
+            onClick={() => setDateConvDialogOpen(true)}
+            small
+            fill
+          />
+          <Button
             icon="export"
             text="Export"
             onClick={onExport}
@@ -346,6 +355,15 @@ export function Sidebar({
         schema={schema}
         tables={tables}
         onExecute={onLookupMerge}
+      />
+
+      <DateConversionDialog
+        isOpen={dateConvDialogOpen}
+        onClose={() => setDateConvDialogOpen(false)}
+        activeTable={activeTable}
+        schema={schema}
+        tables={tables}
+        onApply={onDataOperation}
       />
     </div>
   );

@@ -94,9 +94,9 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (15 files)
+- `src/components/` — React components (16 files)
 - `src/hooks/` — Custom React hooks (`useChunkCache`)
-- `src/utils/` — SQL query builder utilities
+- `src/utils/` — SQL query builder + date detection utilities
 - `src/types.ts` — All TypeScript interfaces
 - `src/styles/` — Less stylesheets (imports BlueprintJS CSS)
 - `html/` — HTML shell + favicon SVG (copied to dist at build time, has CSP policy)
@@ -110,6 +110,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **DuckDB** — in-memory analytical database for loading, querying, combining, and data operations (handles CSV, TSV, JSON, Parquet natively)
 - **SheetJS (xlsx)** — reading/writing Excel `.xlsx`/`.xls` files in the main process
 - **BlueprintJS 4** — UI component library (`@blueprintjs/core`, `@blueprintjs/icons`, `@blueprintjs/popover2`)
+- **chrono-node** — natural language date parsing for text-month format detection
 - **@tanstack/react-virtual** — virtual scrolling for the DataGrid (renders only visible rows)
 - **Webpack 5** — bundles 3 targets with ts-loader, less/css loaders, file-loader for fonts
 - **Less** — stylesheet preprocessor
@@ -147,6 +148,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - "Aggregate" button opens `AggregateDialog`
 - "Pivot Table" button opens `PivotDialog`
 - "Lookup Merge" button opens `LookupMergeDialog` (visible when 2+ tables loaded)
+- "Date Conversion" button opens `DateConversionDialog`
 - "Export" button opens `ExportDialog`
 - Filter panel toggle button
 
@@ -232,11 +234,25 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - "Merge" button executes via `onExecute` callback; merge tables appear in sidebar with `filePath: "(merge)"`
 - Reuses `aggregate-*` CSS classes; new CSS namespace: `merge-key-pairs`, `merge-key-row`, `merge-options-grid`, `merge-rename-*`
 
+### DateConversionDialog.tsx — Date Conversion Modal
+- Converts date columns between formats using DuckDB `TRY_STRPTIME` / `strftime`
+- Props: `isOpen`, `onClose`, `activeTable`, `schema`, `tables`, `onApply(sql)` — reuses existing `onDataOperation` callback
+- **Date Column**: HTMLSelect to pick the column containing date values
+- **Group By** (optional): HTMLSelect for per-group format detection — useful when the same numeric format (e.g. `1/12/20`) means `DD/MM/YY` in one source vs `MM/DD/YY` in another
+- **Detection**: auto-runs on column/group selection (400ms debounce); uses `dateDetection.ts` utility; classifies as ISO / numeric / text-month; max-value heuristic for numeric dates (if max > 12 in a position → that's the day)
+- **Detection results table**: columns = Group | Sample Values | Format | Confidence; green tag for high confidence (format displayed as code), yellow for ambiguous (HTMLSelect dropdown with alternatives), red for unknown (InputGroup for manual entry)
+- **Output Format**: HTMLSelect with common presets (YYYY-MM-DD, DD/MM/YYYY, etc.) + "Custom..." option; shows example using current date
+- **Result Mode**: RadioGroup — "Replace column" (rebuilds SELECT at original position) vs "Create new column" (appends with alias)
+- **SQL generation**: single format → `strftime(TRY_STRPTIME(CAST("col" AS VARCHAR), 'fmt'), 'out_fmt')`; per-group → CASE WHEN with per-group format; already-DATE column → `strftime` directly; wrapped in `CREATE OR REPLACE TABLE ... AS SELECT`
+- **Preview**: extracts SELECT from generated SQL, runs with LIMIT 200, counts NULL results for parse-failure warning
+- **Edge cases**: already DATE/TIMESTAMP columns skip strptime; NULL values pass through; 50+ groups limited with default format for overflow
+- CSS namespace: `.date-conv-*`; reuses `aggregate-dialog-content`, `aggregate-section`, `merge-options-grid` classes
+
 ### PreviewTableDialog.tsx — Reusable Preview Table Dialog
 - Standalone dialog for displaying tabular query results in a separate overlay
 - Props: `isOpen`, `onClose`, `title`, `rows`, `columns`, `maxRows` (default 200)
 - Exports shared `formatValue()` function (NULL display, number formatting)
-- Used by: LookupMergeDialog ("Merge Preview"), AggregateDialog ("Aggregate Results"), PivotDialog ("Pivot Results")
+- Used by: LookupMergeDialog ("Merge Preview"), AggregateDialog ("Aggregate Results"), PivotDialog ("Pivot Results"), DateConversionDialog ("Date Conversion Preview")
 - Reuses `aggregate-results-wrapper` / `aggregate-results-table` / `aggregate-results-truncated` CSS classes
 
 ### DataGrid.tsx — Virtualized Scrollable Data Grid
@@ -344,6 +360,21 @@ EXCEL_MAX_COLS    // 16,384
 | `buildChunkQuery(tableName, columns, filters: FilterGroup, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
 | `buildCountQuery(tableName, filters: FilterGroup)` | `SELECT COUNT(*) ... WHERE` for total row count |
 
+## Date Detection (`src/utils/dateDetection.ts`)
+
+| Function | Purpose |
+|----------|---------|
+| `detectDateFormat(samples)` | Main entry: classifies samples, returns `{ format, confidence, alternatives }` |
+| `classifyPattern(value)` | Categorizes a single value as `iso` / `numeric` / `text-month` / `other` |
+| `analyzeNumericDates(samples, separator)` | Max-value heuristic per position for numeric `DD/MM/YY` vs `MM/DD/YY` disambiguation |
+| `OUTPUT_FORMATS` | Array of `[label, duckdbFormat]` tuples for the output format dropdown |
+
+**Detection algorithm:**
+1. Classify each sample by regex: ISO (`YYYY-MM-DD`), numeric (`D/M/Y`), text-month (alphabetic), other
+2. For numeric dates: split by separator, find max value per position; `max > 12` → that position is day; both ≤ 12 → ambiguous (return both alternatives)
+3. For text-month: use `chrono-node` to parse, detect month-first vs day-first ordering
+4. Confidence levels: `high` (unambiguous), `ambiguous` (both alternatives returned), `unknown` (cannot detect)
+
 ## Styling (`src/styles/app.less`)
 
 - Imports: `blueprint.css`, `blueprint-icons.css`, `blueprint-popover2.css`
@@ -374,7 +405,8 @@ EXCEL_MAX_COLS    // 16,384
 13. **Aggregate**: User opens Aggregate dialog → selects columns and aggregate functions (optionally with Group By) → clicks Run to preview results → optionally clicks "Create as Table" to materialize as `aggregate_N` table with `filePath: "(aggregate)"`
 14. **Pivot Table**: User opens Pivot dialog → selects row fields, pivot column, value fields, and aggregate function → clicks Run to preview cross-tabulation → optionally clicks "Create as Table" to materialize as `pivot_N` table with `filePath: "(pivot)"`; uses DuckDB native `PIVOT ... ON ... USING ... GROUP BY` syntax
 15. **Lookup Merge**: User opens Lookup Merge dialog → selects right table → maps key column pairs (composite keys supported) → selects columns to merge → system checks for duplicate/NULL keys and shows warnings with options → user chooses Left/Inner Join and result mode → "Preview" shows first 10 rows → "Merge" executes the JOIN SQL; creates `merge_N` table with `filePath: "(merge)"` or replaces active table in-place
-16. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
+16. **Date Conversion**: User opens Date Conversion dialog → selects date column (and optionally a group-by column) → format auto-detected per group using max-value heuristic → user resolves ambiguous formats via dropdown → selects output format → preview shows converted values + NULL parse count → apply executes `CREATE OR REPLACE TABLE ... AS SELECT` with `strftime(TRY_STRPTIME(...))` expressions (CASE WHEN for per-group formats)
+17. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
 
 ## Keyboard Shortcuts
 

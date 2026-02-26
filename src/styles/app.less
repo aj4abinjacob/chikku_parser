@@ -1543,6 +1543,115 @@ html, body, #root {
   letter-spacing: 0.5px;
 }
 
+// ── Date Conversion dialog ──
+
+.date-conv-detection-table {
+  border: 1px solid #d8e1e8;
+  border-radius: 4px;
+  background: #fff;
+  overflow: auto;
+  max-height: 280px;
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+
+    th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: #5c7080;
+      padding: 6px 10px;
+      border-bottom: 1px solid #d8e1e8;
+      background: #f5f8fa;
+      position: sticky;
+      top: 0;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #e1e8ed;
+      vertical-align: middle;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: rgba(19, 124, 189, 0.04);
+    }
+  }
+}
+
+.date-conv-group-cell {
+  font-weight: 600;
+  color: #394b59;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.date-conv-sample-values {
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11px;
+  color: #5c7080;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.date-conv-format-select {
+  min-width: 130px;
+
+  .bp4-html-select select {
+    font-size: 12px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  }
+}
+
+.date-conv-format-input {
+  min-width: 130px;
+  max-width: 180px;
+
+  .bp4-input {
+    font-size: 12px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  }
+}
+
+.date-conv-hidden-groups {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #8a9ba8;
+  text-align: center;
+  border-top: 1px solid #e1e8ed;
+  background: #f5f8fa;
+}
+
+.date-conv-example {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #5c7080;
+
+  code {
+    background: #f5f8fa;
+    border: 1px solid #d8e1e8;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 12px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  }
+}
+
+.date-conv-null-warning {
+  margin-top: 6px;
+}
+
 .merge-rename-list {
   display: flex;
   flex-direction: column;
