@@ -81,6 +81,44 @@ html, body, #root {
       margin-bottom: 0;
       z-index: 1;
     }
+
+    .table-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+
+      .bp4-button {
+        font-size: 11px;
+        min-height: 20px;
+        padding: 0 6px;
+        color: #5c7080;
+
+        &:hover {
+          color: #137cbd;
+        }
+      }
+    }
+
+    .table-search {
+      margin-bottom: 6px;
+      position: sticky;
+      top: 22px;
+      z-index: 1;
+      background: #fff;
+      padding-bottom: 2px;
+
+      .bp4-input-group .bp4-input {
+        box-shadow: none;
+        border: 1px solid rgba(17, 20, 24, 0.2);
+        background: linear-gradient(180deg, hsla(0, 0%, 100%, 0.8), hsla(0, 0%, 100%, 0.0));
+        height: 26px;
+        font-size: 12px;
+
+        &:focus {
+          box-shadow: 0 0 0 1px #137cbd, 0 0 0 3px rgba(19, 124, 189, 0.15);
+        }
+      }
+    }
   }
 
   .sidebar-section-columns {

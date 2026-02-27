@@ -73,6 +73,7 @@ export function Sidebar({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
   const [columnSearch, setColumnSearch] = useState("");
+  const [tableSearch, setTableSearch] = useState("");
 
   // Drag-and-drop state
   const dragIndexRef = React.useRef<number | null>(null);
@@ -92,6 +93,13 @@ export function Sidebar({
     setColumnSearch("");
   }, [activeTable]);
 
+  // Filter tables by search
+  const filteredTables = useMemo(() => {
+    if (!tableSearch.trim()) return tables;
+    const q = tableSearch.toLowerCase();
+    return tables.filter((t) => t.tableName.toLowerCase().includes(q));
+  }, [tables, tableSearch]);
+
   const toggleCombineSelection = (tableName: string) => {
     setSelectedForCombine((prev) => {
       const next = new Set(prev);
@@ -99,6 +107,14 @@ export function Sidebar({
       else next.add(tableName);
       return next;
     });
+  };
+
+  const selectAllTablesForCombine = () => {
+    setSelectedForCombine(new Set(tables.map((t) => t.tableName)));
+  };
+
+  const deselectAllTablesForCombine = () => {
+    setSelectedForCombine(new Set());
   };
 
   // Use columnOrder if available, otherwise fall back to schema order
@@ -177,18 +193,56 @@ export function Sidebar({
       <div className="sidebar-section sidebar-section-tables">
         <div className="sidebar-section-header">
           <h4>Tables</h4>
-          <Button
-            icon="chevron-left"
-            minimal
-            small
-            onClick={onHide}
-            title="Hide sidebar"
-          />
+          <div className="table-header-actions">
+            {tables.length >= 2 && (
+              <>
+                <Button
+                  minimal
+                  small
+                  text="All"
+                  title="Select all tables for combine"
+                  disabled={selectedForCombine.size === tables.length}
+                  onClick={selectAllTablesForCombine}
+                />
+                <Button
+                  minimal
+                  small
+                  text="None"
+                  title="Deselect all tables"
+                  disabled={selectedForCombine.size === 0}
+                  onClick={deselectAllTablesForCombine}
+                />
+              </>
+            )}
+            <Button
+              icon="chevron-left"
+              minimal
+              small
+              onClick={onHide}
+              title="Hide sidebar"
+            />
+          </div>
         </div>
+        {tables.length > 8 && (
+          <div className="table-search">
+            <InputGroup
+              leftIcon="search"
+              placeholder="Search tables..."
+              value={tableSearch}
+              onChange={(e) => setTableSearch(e.target.value)}
+              rightElement={
+                tableSearch ? (
+                  <Button icon="cross" minimal small onClick={() => setTableSearch("")} />
+                ) : undefined
+              }
+              small
+            />
+          </div>
+        )}
         {tables.length === 0 && (
           <div style={{ fontSize: 12, color: "#5c7080" }}>No tables loaded</div>
         )}
-        {tables.map((t) => (
+        {filteredTables.map((t) => (
           <div
             key={t.tableName}
             className={`table-list-item${t.tableName === activeTable ? " active" : ""}`}
