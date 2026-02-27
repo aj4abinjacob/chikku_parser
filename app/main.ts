@@ -412,6 +412,9 @@ ipcMain.handle(
   }
 );
 
+// Return free system memory in bytes
+ipcMain.handle("system:free-memory", () => os.freemem());
+
 // ── App Lifecycle ──
 
 app.whenReady().then(() => {

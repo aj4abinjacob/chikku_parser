@@ -85,5 +85,19 @@ export interface SheetInfo {
   rowCount: number;
 }
 
+export type ColOpType = "assign_value" | "find_replace" | "regex_extract"
+  | "extract_numbers" | "trim" | "upper" | "lower" | "clear_null" | "prefix_suffix";
+
+export type UndoStrategy = "per-step" | "snapshot";
+
+export interface ColOpStep {
+  id: number;
+  opType: ColOpType;
+  column: string;
+  description: string;
+  backupTable: string;   // only used in per-step mode
+  timestamp: number;
+}
+
 export const EXCEL_MAX_ROWS = 1_048_576;
 export const EXCEL_MAX_COLS = 16_384;

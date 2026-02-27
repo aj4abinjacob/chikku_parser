@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@blueprintjs/core";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, UndoStrategy } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
@@ -10,6 +10,7 @@ import { ExcelSheetPickerDialog } from "./ExcelSheetPickerDialog";
 import { ImportRetryDialog } from "./ImportRetryDialog";
 import { ExportDialog } from "./ExportDialog";
 import { buildCombineQuery } from "../utils/sqlBuilder";
+import { buildColOpUpdateSQL, buildStepDescription } from "../utils/colOpsSQL";
 import { useChunkCache } from "../hooks/useChunkCache";
 
 function makeTableName(filePath: string): string {
@@ -91,6 +92,10 @@ export function App(): React.ReactElement {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [pendingExcelImport, setPendingExcelImport] = useState<PendingExcelImport | null>(null);
   const [pendingRetry, setPendingRetry] = useState<PendingRetry | null>(null);
+  const [colOpsSteps, setColOpsSteps] = useState<ColOpStep[]>([]);
+  const [undoStrategy, setUndoStrategy] = useState<UndoStrategy>("per-step");
+  const [colOpsNextId, setColOpsNextId] = useState(1);
+  const [dataVersion, setDataVersion] = useState(0);
   const [viewState, setViewState] = useState<ViewState>({
     visibleColumns: [],
     columnOrder: [],
@@ -110,6 +115,7 @@ export function App(): React.ReactElement {
     tableName: activeTable,
     viewState,
     enabled: viewState.visibleColumns.length > 0,
+    dataVersion,
   });
 
   // Load a single file into DuckDB (handles all formats)
@@ -295,6 +301,30 @@ export function App(): React.ReactElement {
 
     fetchSchema();
   }, [activeTable, schemaVersion]);
+
+  // Clean up colOps state when active table changes
+  const prevActiveTableRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prevTable = prevActiveTableRef.current;
+    prevActiveTableRef.current = activeTable;
+
+    if (prevTable && prevTable !== activeTable && colOpsSteps.length > 0) {
+      // Drop all backup/snapshot tables for the previous table
+      const dropBackups = async () => {
+        for (const step of colOpsSteps) {
+          if (step.backupTable) {
+            try { await window.api.exec(`DROP TABLE IF EXISTS "${step.backupTable}"`); } catch (_) { /* ignore */ }
+          }
+        }
+        // Also try dropping snapshot table
+        try { await window.api.exec(`DROP TABLE IF EXISTS "__colops_snapshot_${prevTable}"`); } catch (_) { /* ignore */ }
+      };
+      dropBackups();
+      setColOpsSteps([]);
+      setUndoStrategy("per-step");
+      setColOpsNextId(1);
+    }
+  }, [activeTable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Delete a table from DuckDB and state
   const handleDeleteTable = useCallback(async (tableName: string) => {
@@ -614,6 +644,174 @@ export function App(): React.ReactElement {
     [activeTable]
   );
 
+  // ── Column Ops handlers ──
+
+  const chooseUndoStrategy = useCallback(
+    async (rowCount: number, numColumns: number): Promise<UndoStrategy> => {
+      try {
+        const freeMemBytes = await window.api.getFreeMemory();
+        const estimatedTableSize = rowCount * numColumns * 100;
+        if (estimatedTableSize > freeMemBytes * 0.15) return "snapshot";
+      } catch (_) { /* fallback to per-step */ }
+      return "per-step";
+    },
+    []
+  );
+
+  const handleColOpApply = useCallback(
+    async (opType: ColOpType, column: string, params: Record<string, string>) => {
+      if (!activeTable) return;
+
+      const currentTable = activeTable;
+      const isFirstOp = colOpsSteps.length === 0;
+
+      // Determine strategy on first op
+      let strategy = undoStrategy;
+      if (isFirstOp) {
+        const tableInfo = tables.find((t) => t.tableName === currentTable);
+        const rowCount = tableInfo?.rowCount ?? 0;
+        const numCols = schema.length;
+        strategy = await chooseUndoStrategy(rowCount, numCols);
+        setUndoStrategy(strategy);
+      }
+
+      const stepId = colOpsNextId;
+      let backupName = "";
+
+      try {
+        if (strategy === "per-step") {
+          backupName = `__colops_backup_${stepId}_${currentTable}`;
+          await window.api.exec(
+            `CREATE TABLE "${backupName}" AS SELECT * FROM "${currentTable}"`
+          );
+        } else if (strategy === "snapshot" && isFirstOp) {
+          const snapshotName = `__colops_snapshot_${currentTable}`;
+          await window.api.exec(
+            `CREATE TABLE "${snapshotName}" AS SELECT * FROM "${currentTable}"`
+          );
+        }
+
+        // Execute the UPDATE
+        const sql = buildColOpUpdateSQL(currentTable, column, opType, params, viewState.filters);
+        await window.api.exec(sql);
+
+        // Record step
+        const description = buildStepDescription(opType, column, params);
+        const step: ColOpStep = {
+          id: stepId,
+          opType,
+          column,
+          description,
+          backupTable: backupName,
+          timestamp: Date.now(),
+        };
+
+        setColOpsSteps((prev) => [...prev, step]);
+        setColOpsNextId((prev) => prev + 1);
+        setDataVersion((v) => v + 1);
+        setResetKey((k) => k + 1);
+
+        // Update row count in tables state
+        const countResult = await window.api.query(
+          `SELECT COUNT(*) as count FROM "${currentTable}"`
+        );
+        setTables((prev) =>
+          prev.map((t) =>
+            t.tableName === currentTable
+              ? { ...t, rowCount: Number(countResult[0].count) }
+              : t
+          )
+        );
+      } catch (err) {
+        // If backup was created but UPDATE failed, drop the backup
+        if (backupName) {
+          try { await window.api.exec(`DROP TABLE IF EXISTS "${backupName}"`); } catch (_) { /* ignore */ }
+        }
+        throw err;
+      }
+    },
+    [activeTable, colOpsSteps, undoStrategy, colOpsNextId, viewState.filters, tables, schema, chooseUndoStrategy]
+  );
+
+  const handleColOpUndo = useCallback(
+    async () => {
+      if (!activeTable || colOpsSteps.length === 0) return;
+      const lastStep = colOpsSteps[colOpsSteps.length - 1];
+      if (!lastStep.backupTable) return;
+
+      await window.api.exec(`DROP TABLE IF EXISTS "${activeTable}"`);
+      await window.api.exec(`ALTER TABLE "${lastStep.backupTable}" RENAME TO "${activeTable}"`);
+
+      setColOpsSteps((prev) => prev.slice(0, -1));
+      setDataVersion((v) => v + 1);
+      setSchemaVersion((v) => v + 1);
+      setResetKey((k) => k + 1);
+
+      // Update row count
+      const countResult = await window.api.query(
+        `SELECT COUNT(*) as count FROM "${activeTable}"`
+      );
+      setTables((prev) =>
+        prev.map((t) =>
+          t.tableName === activeTable
+            ? { ...t, rowCount: Number(countResult[0].count) }
+            : t
+        )
+      );
+    },
+    [activeTable, colOpsSteps]
+  );
+
+  const handleColOpRevertAll = useCallback(
+    async () => {
+      if (!activeTable || colOpsSteps.length === 0) return;
+      const snapshotName = `__colops_snapshot_${activeTable}`;
+
+      await window.api.exec(`DROP TABLE IF EXISTS "${activeTable}"`);
+      await window.api.exec(`ALTER TABLE "${snapshotName}" RENAME TO "${activeTable}"`);
+
+      setColOpsSteps([]);
+      setColOpsNextId(1);
+      setUndoStrategy("per-step");
+      setDataVersion((v) => v + 1);
+      setSchemaVersion((v) => v + 1);
+      setResetKey((k) => k + 1);
+
+      // Update row count
+      const countResult = await window.api.query(
+        `SELECT COUNT(*) as count FROM "${activeTable}"`
+      );
+      setTables((prev) =>
+        prev.map((t) =>
+          t.tableName === activeTable
+            ? { ...t, rowCount: Number(countResult[0].count) }
+            : t
+        )
+      );
+    },
+    [activeTable, colOpsSteps]
+  );
+
+  const handleColOpClearAll = useCallback(
+    async () => {
+      if (!activeTable) return;
+
+      // Drop all backup tables
+      for (const step of colOpsSteps) {
+        if (step.backupTable) {
+          try { await window.api.exec(`DROP TABLE IF EXISTS "${step.backupTable}"`); } catch (_) { /* ignore */ }
+        }
+      }
+      // Drop snapshot if exists
+      try { await window.api.exec(`DROP TABLE IF EXISTS "__colops_snapshot_${activeTable}"`); } catch (_) { /* ignore */ }
+
+      setColOpsSteps([]);
+      setColOpsNextId(1);
+      setUndoStrategy("per-step");
+    },
+    [activeTable, colOpsSteps]
+  );
+
   const hasData = tables.length > 0;
 
   return (
@@ -683,6 +881,18 @@ export function App(): React.ReactElement {
                   activeFilters={viewState.filters}
                   activeTable={activeTable}
                   onApplyFilters={handleFiltersChange}
+                  colOpsSteps={colOpsSteps}
+                  undoStrategy={undoStrategy}
+                  onColOpApply={handleColOpApply}
+                  onColOpUndo={handleColOpUndo}
+                  onColOpRevertAll={handleColOpRevertAll}
+                  onColOpClearAll={handleColOpClearAll}
+                  totalRows={totalRows}
+                  unfilteredRows={
+                    hasActiveFilters(viewState.filters)
+                      ? tables.find((t) => t.tableName === activeTable)?.rowCount ?? null
+                      : null
+                  }
                 />
               )}
             </>

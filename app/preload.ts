@@ -13,6 +13,7 @@ export interface DbApi {
   exportExcelMulti: (sheets: { sheetName: string; sql: string }[], filePath: string) => Promise<boolean>;
   saveDialog: () => Promise<string | null>;
   saveFileDialog: (format: string) => Promise<string | null>;
+  getFreeMemory: () => Promise<number>;
   onOpenFiles: (callback: (filePaths: string[]) => void) => void;
   onAddFiles: (callback: (filePaths: string[]) => void) => void;
   onExportCSV: (callback: () => void) => void;
@@ -40,6 +41,9 @@ contextBridge.exposeInMainWorld("api", {
   // Dialogs
   saveDialog: () => ipcRenderer.invoke("dialog:save-csv"),
   saveFileDialog: (format: string) => ipcRenderer.invoke("dialog:save-file", format),
+
+  // System
+  getFreeMemory: () => ipcRenderer.invoke("system:free-memory"),
 
   // Menu events from main process
   onOpenFiles: (callback: (filePaths: string[]) => void) => {

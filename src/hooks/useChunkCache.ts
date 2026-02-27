@@ -9,6 +9,7 @@ interface UseChunkCacheArgs {
   tableName: string | null;
   viewState: ViewState;
   enabled: boolean;
+  dataVersion?: number;
 }
 
 interface UseChunkCacheReturn {
@@ -22,6 +23,7 @@ export function useChunkCache({
   tableName,
   viewState,
   enabled,
+  dataVersion = 0,
 }: UseChunkCacheArgs): UseChunkCacheReturn {
   const [totalRows, setTotalRows] = useState(0);
 
@@ -46,7 +48,7 @@ export function useChunkCache({
 
   // Build a key from all deps that should trigger cache invalidation
   const filtersKey = JSON.stringify(viewState.filters);
-  const cacheKey = `${tableName}|${enabled}|${visibleColumnsKey}|${filtersKey}|${viewState.sortColumn}|${viewState.sortDirection}`;
+  const cacheKey = `${tableName}|${enabled}|${visibleColumnsKey}|${filtersKey}|${viewState.sortColumn}|${viewState.sortDirection}|${dataVersion}`;
   const prevCacheKeyRef = useRef<string>("");
 
   // Reset cache synchronously during render (before effects run)

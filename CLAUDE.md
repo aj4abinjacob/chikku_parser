@@ -62,6 +62,7 @@ npm run clean        # Remove dist/
 | `db:export-excel-multi` | Takes `{sheetName, sql}[]`, queries each, builds multi-sheet workbook via SheetJS |
 | `dialog:save-csv` | (Legacy) Native save dialog for CSV |
 | `dialog:save-file` | Save dialog with format-specific filters |
+| `system:free-memory` | Returns `os.freemem()` — used by Column Ops to choose undo strategy |
 
 ### Preload (`app/preload.ts`)
 
@@ -81,6 +82,7 @@ interface DbApi {
   exportExcelMulti(sheets: {sheetName, sql}[], filePath: string): Promise<boolean>
   saveDialog(): Promise<string | null>
   saveFileDialog(format: string): Promise<string | null>
+  getFreeMemory(): Promise<number>                           // os.freemem()
   onOpenFiles(callback: (paths: string[]) => void): void   // Cmd+O
   onAddFiles(callback: (paths: string[]) => void): void    // Cmd+Shift+O
   onExportCSV(callback: () => void): void                   // Cmd+E
@@ -94,9 +96,9 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (16 files)
+- `src/components/` — React components (17 files)
 - `src/hooks/` — Custom React hooks (`useChunkCache`)
-- `src/utils/` — SQL query builder + date detection utilities
+- `src/utils/` — SQL query builder, date detection, and column ops SQL utilities
 - `src/types.ts` — All TypeScript interfaces
 - `src/styles/` — Less stylesheets (imports BlueprintJS CSS)
 - `html/` — HTML shell + favicon SVG (copied to dist at build time, has CSP policy)
@@ -120,7 +122,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ## Components
 
 ### App.tsx — Main Orchestrator
-- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`, `combineTableNames`, `exportDialogOpen`, `pendingExcelImport`, `pendingRetry`
+- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`, `combineTableNames`, `exportDialogOpen`, `pendingExcelImport`, `pendingRetry`, `colOpsSteps`, `undoStrategy`, `colOpsNextId`
 - Uses `useChunkCache` hook for lazy data loading (no `rows`/`totalRows` state — provided by the hook)
 - Registers IPC listeners on mount: `onOpenFiles` (replace), `onAddFiles` (append), `onExportCSV` (opens ExportDialog)
 - `loadFiles(filePaths, replace)` — detects format by extension: Excel → `getExcelSheets()`, if >1 sheet opens `ExcelSheetPickerDialog`, else imports directly; CSV/TSV → tries `loadFile()`, on failure opens `ImportRetryDialog`; JSON/Parquet → straight `loadFile()` call
@@ -134,9 +136,14 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `handleCreateAggregateTable(sql)` — takes a SELECT SQL, generates unique `aggregate_N` name, executes `CREATE TABLE ... AS`, adds to tables state with `filePath: "(aggregate)"`
 - `handleCreatePivotTable(sql)` — takes a PIVOT SQL, generates unique `pivot_N` name, executes `CREATE TABLE ... AS (sql)`, adds to tables state with `filePath: "(pivot)"`
 - `handleLookupMerge(sql, options)` — executes a JOIN SQL for the Lookup Merge feature; if `options.replaceActive` is true, replaces the active table via `CREATE OR REPLACE TABLE`; otherwise creates a new `merge_N` table with `filePath: "(merge)"`
+- `handleColOpApply(opType, column, params)` — determines undo strategy on first op (per-step vs snapshot based on free RAM), creates backup, executes UPDATE SQL scoped by active filters, records step
+- `handleColOpUndo()` — per-step mode: restores last backup via `ALTER TABLE RENAME`, removes step
+- `handleColOpRevertAll()` — snapshot mode: restores from `__colops_snapshot_*`, drops it, clears all steps
+- `handleColOpClearAll()` — drops all backup/snapshot tables, clears steps (confirmation in ColumnOpsPanel)
+- ColOps cleanup effect: on `activeTable` change, drops all backup/snapshot tables for previous table, resets colOpsSteps and undoStrategy
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
-- Layout: `Sidebar + DataGrid + FilterPanel + StatusBar + CombineDialog + ExportDialog + ExcelSheetPickerDialog + ImportRetryDialog`
+- Layout: `Sidebar + DataGrid + FilterPanel (with Filters/Column Ops tabs) + StatusBar + CombineDialog + ExportDialog + ExcelSheetPickerDialog + ImportRetryDialog`
 
 ### Sidebar.tsx — Left Panel
 - **Three-section flex layout**: Tables (max 20%, scrollable), Columns (flex remaining, scrollable), Operations (fixed at bottom); each section scrolls independently with sticky headers
@@ -273,8 +280,12 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `resetKey` prop: scrolls to top and clears selection when it changes
 - Monospace font (`SF Mono`, `Menlo`, `Monaco`)
 
-### FilterPanel.tsx — Resizable Bottom Panel with Recursive AND/OR Groups
+### FilterPanel.tsx — Resizable Bottom Panel with Tabs (Filters + Column Ops)
 - Resizable via drag handle (min 80px, max 500px, default 260px)
+- **Two tabs**: "Filters" and "Column Ops" — tab buttons in header, local `activeTab` state
+- Filter count badge shown on Filters tab when not active; step count badge on Column Ops tab when not active
+- When Filters tab active: shows Clear All / Apply Filters buttons in header
+- When Column Ops tab active: renders ColumnOpsPanel component
 - **Recursive filter groups**: supports nested AND/OR grouping (e.g. `AND(cond, OR(cond, AND(cond, cond)))`)
 - Root group is always present; user can toggle its logic (AND/OR) and add conditions or sub-groups
 - **FilterGroupRenderer** — recursive component rendering logic toggle, children, "+ Condition" / "+ Sub-group" buttons, and delete button for non-root groups
@@ -290,6 +301,21 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Tracks dirty state (unsaved changes indicator)
 - Depth-based visual nesting: colored left borders cycling blue → purple → orange → green via `data-depth` attribute
 - CSS classes: `.filter-group`, `.filter-group-root`, `.filter-group-nested`, `.filter-group-header`, `.filter-group-children`, `.filter-group-actions`, `.filter-group-delete`
+
+### ColumnOpsPanel.tsx — Column Ops Tab Body
+- In-place column operations that apply to filtered rows via UPDATE statements
+- Props: `columns`, `activeTable`, `activeFilters`, `colOpsSteps`, `undoStrategy`, `onApply`, `onUndo`, `onRevertAll`, `onClearAll`, `totalRows`, `unfilteredRows`
+- **Filtered rows banner**: blue when filter active (shows filtered/total count), orange when no filter (all rows)
+- **Operation form**: Column (HTMLSelect), Operation (HTMLSelect with 9 types), dynamic params per op type, Apply button
+- **9 operation types**: assign_value, find_replace, regex_extract, extract_numbers, trim, upper, lower, clear_null, prefix_suffix
+- **Step history**: shows chronological list (newest first) with step number and description
+- **Adaptive undo strategy**:
+  - Per-step mode (small tables): backup before each op, undo button on latest step
+  - Snapshot mode (large tables, >15% of free RAM): single backup before first op, only "Revert All" available
+  - Strategy chosen on first op based on `rowCount * numColumns * 100` vs `os.freemem() * 0.15`
+- **Backup naming**: `__colops_backup_N_tableName` (per-step) or `__colops_snapshot_tableName` (snapshot) — never added to `tables` state
+- Clear confirmation (Alert) drops all backups; Revert All confirmation restores snapshot
+- CSS namespace: `.colops-*`
 
 ### CombineDialog.tsx — Column Mapping Modal
 - Large dialog (90vw, max 1100px) with two-panel layout
@@ -344,6 +370,9 @@ ViewState         // { visibleColumns[], columnOrder[], filters: FilterGroup, so
 FileFormat        // "csv" | "tsv" | "json" | "parquet" | "xlsx" | "xls"
 ImportOptions     // { csvDelimiter?, csvIgnoreErrors?, excelSheet? }
 SheetInfo         // { name, rowCount }
+ColOpType         // "assign_value" | "find_replace" | "regex_extract" | "extract_numbers" | "trim" | "upper" | "lower" | "clear_null" | "prefix_suffix"
+UndoStrategy      // "per-step" | "snapshot"
+ColOpStep         // { id, opType, column, description, backupTable, timestamp }
 EXCEL_MAX_ROWS    // 1,048,576
 EXCEL_MAX_COLS    // 16,384
 ```
@@ -360,6 +389,13 @@ EXCEL_MAX_COLS    // 16,384
 | `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases, NULL for missing columns, auto VARCHAR cast on type mismatch, trimmed output names |
 | `buildChunkQuery(tableName, columns, filters: FilterGroup, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
 | `buildCountQuery(tableName, filters: FilterGroup)` | `SELECT COUNT(*) ... WHERE` for total row count |
+
+## Column Ops SQL (`src/utils/colOpsSQL.ts`)
+
+| Function | Purpose |
+|----------|---------|
+| `buildColOpUpdateSQL(tableName, column, opType, params, filters)` | Builds `UPDATE ... SET ... WHERE` for in-place column operations scoped by active filters |
+| `buildStepDescription(opType, column, params)` | Human-readable label for step history display |
 
 ## Date Detection (`src/utils/dateDetection.ts`)
 
@@ -386,6 +422,8 @@ EXCEL_MAX_COLS    // 16,384
 - Cell classes: `.dg-cell`, `.dg-row-num-cell`, `.dg-header-cell`, `.cell-selected`, `.loading-cell`, `.column-dragging`
 - Filter inputs match HTMLSelect appearance: `height: 30px`, border styling
 - Combine dialog inputs also use `height: 30px` to match
+- Filter panel tabs: `.filter-panel-tabs`, `.filter-panel-tab`, `.filter-panel-tab-badge`
+- Column ops: `.colops-body`, `.colops-filter-banner` / `.colops-filter-banner-all`, `.colops-form` / `.colops-form-row` / `.colops-form-label`, `.colops-steps` / `.colops-step-item` / `.colops-step-number` / `.colops-step-desc`, `.colops-error`, `.colops-empty`
 - Export dialog: `.export-format-row`, `.export-table-grid`
 - Import retry: `.import-retry-form`
 
@@ -407,7 +445,8 @@ EXCEL_MAX_COLS    // 16,384
 14. **Pivot Table**: User opens Pivot dialog → selects row fields, pivot column, value fields, and aggregate function → clicks Run to preview cross-tabulation → optionally clicks "Create as Table" to materialize as `pivot_N` table with `filePath: "(pivot)"`; uses DuckDB native `PIVOT ... ON ... USING ... GROUP BY` syntax
 15. **Lookup Merge**: User opens Lookup Merge dialog → selects right table → maps key column pairs (composite keys supported) → selects columns to merge → system checks for duplicate/NULL keys and shows warnings with options → user chooses Left/Inner Join and result mode → "Preview" shows first 10 rows → "Merge" executes the JOIN SQL; creates `merge_N` table with `filePath: "(merge)"` or replaces active table in-place
 16. **Date Conversion**: User opens Date Conversion dialog → selects date column (and optionally a group-by column) → format auto-detected per group using max-value heuristic → user resolves ambiguous formats via dropdown → selects output format → preview shows converted values + NULL parse count → apply executes `CREATE OR REPLACE TABLE ... AS SELECT` with `strftime(TRY_STRPTIME(...))` expressions (CASE WHEN for per-group formats)
-17. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
+17. **Column Ops**: User opens FilterPanel → switches to "Column Ops" tab → selects column and operation → filtered-rows banner shows scope → Apply executes `UPDATE ... SET ... WHERE` scoped by active filters → adaptive undo: per-step mode creates `__colops_backup_N_table` before each op (undo restores via `ALTER TABLE RENAME`), snapshot mode creates single `__colops_snapshot_table` before first op (only "Revert All" available) → strategy chosen based on estimated table size vs 15% of free RAM → backups cleaned up on table switch
+18. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
 
 ## Keyboard Shortcuts
 

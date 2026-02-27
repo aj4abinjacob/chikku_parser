@@ -16,7 +16,11 @@ import {
   isFilterGroup,
   hasActiveFilters,
   countConditions,
+  ColOpType,
+  ColOpStep,
+  UndoStrategy,
 } from "../types";
+import { ColumnOpsPanel } from "./ColumnOpsPanel";
 
 const OPERATORS: { value: FilterCondition["operator"]; label: string }[] = [
   { value: "CONTAINS", label: "contains" },
@@ -605,6 +609,14 @@ interface FilterPanelProps {
   activeFilters: FilterGroup;
   activeTable: string | null;
   onApplyFilters: (filters: FilterGroup) => void;
+  colOpsSteps: ColOpStep[];
+  undoStrategy: UndoStrategy;
+  onColOpApply: (opType: ColOpType, column: string, params: Record<string, string>) => Promise<void>;
+  onColOpUndo: () => Promise<void>;
+  onColOpRevertAll: () => Promise<void>;
+  onColOpClearAll: () => Promise<void>;
+  totalRows: number;
+  unfilteredRows: number | null;
 }
 
 export function FilterPanel({
@@ -612,11 +624,20 @@ export function FilterPanel({
   activeFilters,
   activeTable,
   onApplyFilters,
+  colOpsSteps,
+  undoStrategy,
+  onColOpApply,
+  onColOpUndo,
+  onColOpRevertAll,
+  onColOpClearAll,
+  totalRows,
+  unfilteredRows,
 }: FilterPanelProps): React.ReactElement {
   const [draftRoot, setDraftRoot] = useState<DraftFilterGroup>(() =>
     convertToDraft(activeFilters)
   );
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
+  const [activeTab, setActiveTab] = useState<"filters" | "colops">("filters");
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -696,36 +717,59 @@ export function FilterPanel({
 
       <div className="filter-panel-header">
         <div className="filter-panel-header-left">
-          <span className="filter-panel-title">Filters</span>
-          {activeCount > 0 && (
-            <Tag minimal round intent={Intent.PRIMARY}>
-              {activeCount} active
-            </Tag>
-          )}
-        </div>
-        <div className="filter-panel-header-right">
-          {draftHasContent && (
+          <div className="filter-panel-tabs">
             <Button
-              icon="cross"
-              text="Clear All"
+              className="filter-panel-tab"
               small
               minimal
-              onClick={clearAll}
+              active={activeTab === "filters"}
+              onClick={() => setActiveTab("filters")}
+              text="Filters"
             />
-          )}
-          {draftHasContent && (
+            {activeCount > 0 && activeTab !== "filters" && (
+              <Tag minimal round intent={Intent.PRIMARY} className="filter-panel-tab-badge">
+                {activeCount}
+              </Tag>
+            )}
             <Button
-              intent={Intent.PRIMARY}
-              text="Apply Filters"
+              className="filter-panel-tab"
               small
-              onClick={applyFilters}
-              disabled={!isDirty && hasActiveFilters(activeFilters)}
+              minimal
+              active={activeTab === "colops"}
+              onClick={() => setActiveTab("colops")}
+              text="Column Ops"
             />
+            {colOpsSteps.length > 0 && activeTab !== "colops" && (
+              <Tag minimal round intent={Intent.SUCCESS} className="filter-panel-tab-badge">
+                {colOpsSteps.length}
+              </Tag>
+            )}
+          </div>
+        </div>
+        <div className="filter-panel-header-right">
+          {activeTab === "filters" && draftHasContent && (
+            <>
+              <Button
+                icon="cross"
+                text="Clear All"
+                small
+                minimal
+                onClick={clearAll}
+              />
+              <Button
+                intent={Intent.PRIMARY}
+                text="Apply Filters"
+                small
+                onClick={applyFilters}
+                disabled={!isDirty && hasActiveFilters(activeFilters)}
+              />
+            </>
           )}
         </div>
       </div>
 
-      <div className="filter-panel-body">
+      {/* Both tabs always mounted to preserve state; toggle visibility */}
+      <div className="filter-panel-body" style={{ display: activeTab === "filters" ? "flex" : "none" }}>
         <FilterGroupRenderer
           group={draftRoot}
           columns={columns}
@@ -736,6 +780,20 @@ export function FilterPanel({
           onApply={applyFilters}
         />
       </div>
+      <ColumnOpsPanel
+        columns={columns}
+        activeTable={activeTable}
+        activeFilters={activeFilters}
+        colOpsSteps={colOpsSteps}
+        undoStrategy={undoStrategy}
+        onApply={onColOpApply}
+        onUndo={onColOpUndo}
+        onRevertAll={onColOpRevertAll}
+        onClearAll={onColOpClearAll}
+        totalRows={totalRows}
+        unfilteredRows={unfilteredRows}
+        visible={activeTab === "colops"}
+      />
     </div>
   );
 }
