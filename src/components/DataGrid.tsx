@@ -254,43 +254,91 @@ export function DataGrid({
     [columnWidths]
   );
 
-  const handleCellClick = useCallback(
+  // ── Click-drag selection state ──
+  const dragSelecting = useRef(false);
+  const dragBaseSelected = useRef<Set<string>>(new Set());
+
+  const buildRange = useCallback(
+    (
+      fromRow: number,
+      fromCol: string,
+      toRow: number,
+      toCol: string
+    ): Set<string> => {
+      const r0 = Math.min(fromRow, toRow);
+      const r1 = Math.max(fromRow, toRow);
+      const c0 = Math.min(columns.indexOf(fromCol), columns.indexOf(toCol));
+      const c1 = Math.max(columns.indexOf(fromCol), columns.indexOf(toCol));
+      const s = new Set<string>();
+      for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+          s.add(cellKey(r, columns[c]));
+        }
+      }
+      return s;
+    },
+    [columns]
+  );
+
+  const handleCellMouseDown = useCallback(
     (rowIdx: number, col: string, e: React.MouseEvent) => {
+      // Only handle left button
+      if (e.button !== 0) return;
       const meta = e.metaKey || e.ctrlKey;
 
       if (e.shiftKey && anchor.current) {
-        const r0 = Math.min(anchor.current.row, rowIdx);
-        const r1 = Math.max(anchor.current.row, rowIdx);
-        const c0 = Math.min(
-          columns.indexOf(anchor.current.col),
-          columns.indexOf(col)
-        );
-        const c1 = Math.max(
-          columns.indexOf(anchor.current.col),
-          columns.indexOf(col)
-        );
-
+        // Shift+click range — same behavior as before, no drag
+        const range = buildRange(anchor.current.row, anchor.current.col, rowIdx, col);
         const next = meta ? new Set(selected) : new Set<string>();
-        for (let r = r0; r <= r1; r++) {
-          for (let c = c0; c <= c1; c++) {
-            next.add(cellKey(r, columns[c]));
-          }
-        }
+        for (const k of range) next.add(k);
         setSelected(next);
-      } else if (meta) {
-        const next = new Set(selected);
+        return;
+      }
+
+      // Prevent text selection during drag
+      e.preventDefault();
+      // Re-focus the container so Cmd+C keydown listener works
+      containerRef.current?.focus();
+
+      // Start drag selection
+      dragSelecting.current = true;
+      anchor.current = { row: rowIdx, col };
+
+      if (meta) {
+        // Cmd/Ctrl+click toggle: keep existing selection as base
         const k = cellKey(rowIdx, col);
-        if (next.has(k)) next.delete(k);
-        else next.add(k);
-        setSelected(next);
-        anchor.current = { row: rowIdx, col };
+        const base = new Set(selected);
+        if (base.has(k)) base.delete(k);
+        else base.add(k);
+        dragBaseSelected.current = new Set(selected);
+        setSelected(base);
       } else {
+        dragBaseSelected.current = new Set();
         setSelected(new Set([cellKey(rowIdx, col)]));
-        anchor.current = { row: rowIdx, col };
       }
     },
-    [columns, selected]
+    [columns, selected, buildRange]
   );
+
+  const handleCellMouseEnterDrag = useCallback(
+    (rowIdx: number, col: string) => {
+      if (!dragSelecting.current || !anchor.current) return;
+      const range = buildRange(anchor.current.row, anchor.current.col, rowIdx, col);
+      const next = new Set(dragBaseSelected.current);
+      for (const k of range) next.add(k);
+      setSelected(next);
+    },
+    [buildRange]
+  );
+
+  // End drag selection on mouseup (document-level to catch releases outside grid)
+  useEffect(() => {
+    const onMouseUp = () => {
+      dragSelecting.current = false;
+    };
+    document.addEventListener("mouseup", onMouseUp);
+    return () => document.removeEventListener("mouseup", onMouseUp);
+  }, []);
 
   // Cmd/Ctrl+C copy — uses getRow instead of rows array
   useEffect(() => {
@@ -429,17 +477,17 @@ export function DataGrid({
                           .filter(Boolean)
                           .join(" ")}
                         style={{ width: columnWidths[col] ?? 150 }}
-                        onClick={(e) =>
-                          handleCellClick(virtualRow.index, col, e)
+                        onMouseDown={(e) =>
+                          handleCellMouseDown(virtualRow.index, col, e)
                         }
-                        onMouseEnter={(e) =>
-                          loaded
-                            ? handleCellMouseEnter(
-                                e,
-                                String(row[col] ?? "")
-                              )
-                            : undefined
-                        }
+                        onMouseEnter={(e) => {
+                          handleCellMouseEnterDrag(virtualRow.index, col);
+                          if (loaded && !dragSelecting.current)
+                            handleCellMouseEnter(
+                              e,
+                              String(row[col] ?? "")
+                            );
+                        }}
                         onMouseLeave={handleCellMouseLeave}
                       >
                         {cellText}
