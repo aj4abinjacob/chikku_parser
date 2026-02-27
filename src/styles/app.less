@@ -2301,12 +2301,16 @@ html, body, #root {
     padding: 2px 4px;
     flex: 1;
     min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1px 8px;
+    align-content: start;
   }
 
   .rowops-col-item {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
     padding: 2px 6px;
     font-size: 12px;
     border-radius: 3px;
@@ -2334,11 +2338,14 @@ html, body, #root {
     }
 
     .rowops-col-type {
-      margin-left: auto;
-      font-size: 10px;
+      font-size: 9px;
       color: #8a9ba8;
       flex-shrink: 0;
       white-space: nowrap;
+      background: rgba(138, 155, 168, 0.1);
+      padding: 0 4px;
+      border-radius: 2px;
+      line-height: 16px;
     }
   }
 }

@@ -154,7 +154,8 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Three-section flex layout**: Tables (max 20%, scrollable), Columns (flex remaining, scrollable), Operations (fixed at bottom); each section scrolls independently with sticky headers
 - Lists loaded tables with row counts (click to switch active table)
 - **Delete table**: hover-reveal `x` button on each table row; opens BlueprintJS `Alert` confirmation before calling `onDeleteTable`
-- **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded, including combined tables) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change
+- **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded, including combined tables) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change; "All" / "None" buttons in tables header for quick selection
+- Table search input (shown when 8+ tables) to filter table list by name
 - "Combine N Selected" button (enabled when 2+ tables selected, passes selected names to `onCombine`)
 - Column visibility checkboxes with "All" / "None" buttons in header
 - Column search input (shown when 8+ columns) to filter column list by name
@@ -193,7 +194,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### DataOperationsDialog.tsx — Data Operations Modal
 - Extracted from Sidebar; self-contained dialog for column/row transforms
 - Props: `isOpen`, `onClose`, `activeTable`, `schema`, `onApply(sql)`, `onSampleTable(n, isPercent)`
-- 14 operation types:
+- 16 operation types:
   - `regex_extract` — regexp_extract() with user-provided pattern + capture group index; casts source to VARCHAR first so it works on any data type
   - `trim` — TRIM()
   - `upper` / `lower` — UPPER() / LOWER()
@@ -207,6 +208,8 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
   - `sample_table` — creates a new table with a random sample of rows; supports "Number of rows" or "Percentage" mode via DuckDB `USING SAMPLE`; delegates to `onSampleTable` callback (creates `sample_N` table like combine creates `combined_N`); no preview
   - `remove_duplicates` — deduplicates rows based on user-selected columns; converts empty strings to NULL via `NULLIF()` on all VARCHAR columns in a CTE, then uses `QUALIFY row_number() OVER (PARTITION BY ...)` for dedup; multi-select checkboxes with Select All/Deselect All and search; preview shows row count before/after
   - `conditional_column` — creates a new column using a CASE WHEN expression; multi-row condition builder with column, operator (=, !=, >, <, >=, <=, LIKE, NOT LIKE, IS NULL, IS NOT NULL, CONTAINS, STARTS WITH, ENDS WITH), value, and result; supports default ELSE value; live preview shows 5 sample rows; conditions evaluated in order (first match wins)
+  - `replace_empty_null` — replaces empty and whitespace-only strings with actual NULL on all or selected VARCHAR columns; non-VARCHAR columns are skipped; optional column selector with search
+  - `replace_sentinel_null` — replaces sentinel values (None, none, NONE, NaN, Nan, nan, NULL, null, Null, N/A, n/a, NA, na, #N/A, #NA) with actual NULL on all or selected VARCHAR columns; non-VARCHAR columns are skipped; optional column selector with search
 - Live preview: fetches 3 sample rows and shows before/after for most operations
 - Builds complete SQL internally and passes to `onApply` (or `onSampleTable` for sample_table)
 
@@ -331,7 +334,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Props: `columns`, `activeTable`, `activeFilters`, `rowOpsSteps`, `undoStrategy`, `onApply`, `onUndo`, `onRevertAll`, `onClearAll`, `totalRows`, `unfilteredRows`, `visible`
 - **4 operation types**: delete_filtered, keep_filtered, remove_empty, remove_duplicates
 - **Filter-dependent ops**: delete_filtered and keep_filtered are disabled (grayed out with hint text) when no filter is active
-- **Column selector**: multi-select with search + Select All/Deselect All for remove_empty and remove_duplicates; when no columns selected, operates on all columns
+- **Column selector**: multi-select with search + Select All/Deselect All for remove_empty and remove_duplicates; when no columns selected, operates on all columns; compact multi-column grid layout with type badge next to column name
 - **Preview counts**: debounced (400ms) preview showing "N rows will be removed"
 - **Confirmation dialog**: all operations show a confirmation Alert before executing (destructive ops)
 - **Scope banner**: matching colops style — blue when filter active, orange when no filter
