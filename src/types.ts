@@ -99,5 +99,15 @@ export interface ColOpStep {
   timestamp: number;
 }
 
+export type RowOpType = "delete_filtered" | "keep_filtered" | "remove_empty" | "remove_duplicates";
+
+export interface RowOpStep {
+  id: number;
+  opType: RowOpType;
+  description: string;
+  backupTable: string;   // only used in per-step mode
+  timestamp: number;
+}
+
 export const EXCEL_MAX_ROWS = 1_048_576;
 export const EXCEL_MAX_COLS = 16_384;

@@ -97,9 +97,9 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (17 files)
+- `src/components/` — React components (18 files)
 - `src/hooks/` — Custom React hooks (`useChunkCache`)
-- `src/utils/` — SQL query builder, date detection, and column ops SQL utilities
+- `src/utils/` — SQL query builder, date detection, column ops SQL, and row ops SQL utilities
 - `src/types.ts` — All TypeScript interfaces
 - `src/styles/` — Less stylesheets (imports BlueprintJS CSS)
 - `html/` — HTML shell + favicon SVG (copied to dist at build time, has CSP policy)
@@ -123,7 +123,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ## Components
 
 ### App.tsx — Main Orchestrator
-- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`, `combineTableNames`, `exportDialogOpen`, `pendingExcelImport`, `pendingRetry`, `colOpsSteps`, `undoStrategy`, `colOpsNextId`
+- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`, `combineTableNames`, `exportDialogOpen`, `pendingExcelImport`, `pendingRetry`, `colOpsSteps`, `undoStrategy`, `colOpsNextId`, `rowOpsSteps`, `rowOpsUndoStrategy`, `rowOpsNextId`
 - Uses `useChunkCache` hook for lazy data loading (no `rows`/`totalRows` state — provided by the hook)
 - Registers IPC listeners on mount: `onOpenFiles` (replace), `onAddFiles` (append), `onExportCSV` (opens ExportDialog)
 - `loadFiles(filePaths, replace)` — detects format by extension: Excel → `getExcelSheets()`, if >1 sheet opens `ExcelSheetPickerDialog`, else imports directly; CSV/TSV → tries `loadFile()`, on failure opens `ImportRetryDialog`; JSON/Parquet → straight `loadFile()` call
@@ -141,10 +141,14 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `handleColOpUndo()` — per-step mode: restores last backup via `ALTER TABLE RENAME`, removes step
 - `handleColOpRevertAll()` — snapshot mode: restores from `__colops_snapshot_*`, drops it, clears all steps
 - `handleColOpClearAll()` — drops all backup/snapshot tables, clears steps (confirmation in ColumnOpsPanel)
-- ColOps cleanup effect: on `activeTable` change, drops all backup/snapshot tables for previous table, resets colOpsSteps and undoStrategy
+- `handleRowOpApply(opType, params)` — determines undo strategy on first op, creates backup, executes row operation SQL (DELETE or CREATE OR REPLACE TABLE), refreshes schema, records step
+- `handleRowOpUndo()` — per-step mode: restores last backup via `ALTER TABLE RENAME`, removes step
+- `handleRowOpRevertAll()` — snapshot mode: restores from `__rowops_snapshot_*`, drops it, clears all steps
+- `handleRowOpClearAll()` — drops all rowOps backup/snapshot tables, clears steps
+- Cleanup effect: on `activeTable` change, drops all backup/snapshot tables for previous table, resets both colOpsSteps and rowOpsSteps and their undoStrategy
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
-- Layout: `Sidebar + DataGrid + FilterPanel (with Filters/Column Ops tabs) + StatusBar + CombineDialog + ExportDialog + ExcelSheetPickerDialog + ImportRetryDialog`
+- Layout: `Sidebar + DataGrid + FilterPanel (with Filters/Column Ops/Row Ops tabs) + StatusBar + CombineDialog + ExportDialog + ExcelSheetPickerDialog + ImportRetryDialog`
 
 ### Sidebar.tsx — Left Panel
 - **Three-section flex layout**: Tables (max 20%, scrollable), Columns (flex remaining, scrollable), Operations (fixed at bottom); each section scrolls independently with sticky headers
@@ -281,12 +285,13 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `resetKey` prop: scrolls to top and clears selection when it changes
 - Monospace font (`SF Mono`, `Menlo`, `Monaco`)
 
-### FilterPanel.tsx — Resizable Bottom Panel with Tabs (Filters + Column Ops)
+### FilterPanel.tsx — Resizable Bottom Panel with Tabs (Filters + Column Ops + Row Ops)
 - Resizable via drag handle (min 80px, max 500px, default 260px)
-- **Two tabs**: "Filters" and "Column Ops" — tab buttons in header, local `activeTab` state
-- Filter count badge shown on Filters tab when not active; step count badge on Column Ops tab when not active
+- **Three tabs**: "Filters", "Column Ops", and "Row Ops" — tab buttons in header, local `activeTab` state
+- Filter count badge (blue) on Filters tab when not active; step count badge (green) on Column Ops tab when not active; step count badge (orange) on Row Ops tab when not active
 - When Filters tab active: shows Clear All / Apply Filters buttons in header
 - When Column Ops tab active: renders ColumnOpsPanel component
+- When Row Ops tab active: renders RowOpsPanel component
 - **Recursive filter groups**: supports nested AND/OR grouping (e.g. `AND(cond, OR(cond, AND(cond, cond)))`)
 - Root group is always present; user can toggle its logic (AND/OR) and add conditions or sub-groups
 - **FilterGroupRenderer** — recursive component rendering logic toggle, children, "+ Condition" / "+ Sub-group" buttons, and delete button for non-root groups
@@ -317,6 +322,20 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Backup naming**: `__colops_backup_N_tableName` (per-step) or `__colops_snapshot_tableName` (snapshot) — never added to `tables` state
 - Clear confirmation (Alert) drops all backups; Revert All confirmation restores snapshot
 - CSS namespace: `.colops-*`
+
+### RowOpsPanel.tsx — Row Ops Tab Body
+- Row-level operations (delete, keep, deduplicate, remove empty) with independent undo history
+- Props: `columns`, `activeTable`, `activeFilters`, `rowOpsSteps`, `undoStrategy`, `onApply`, `onUndo`, `onRevertAll`, `onClearAll`, `totalRows`, `unfilteredRows`, `visible`
+- **4 operation types**: delete_filtered, keep_filtered, remove_empty, remove_duplicates
+- **Filter-dependent ops**: delete_filtered and keep_filtered are disabled (grayed out with hint text) when no filter is active
+- **Column selector**: multi-select with search + Select All/Deselect All for remove_empty and remove_duplicates; when no columns selected, operates on all columns
+- **Preview counts**: debounced (400ms) preview showing "N rows will be removed"
+- **Confirmation dialog**: all operations show a confirmation Alert before executing (destructive ops)
+- **Scope banner**: matching colops style — blue when filter active, orange when no filter
+- **Step history**: same adaptive undo strategy as ColumnOpsPanel (per-step vs snapshot)
+- **Backup naming**: `__rowops_backup_N_tableName` (per-step) or `__rowops_snapshot_tableName` (snapshot) — no conflicts with colOps backups
+- Independent undo state from Column Ops; cleaned up on table switch
+- CSS namespace: `.rowops-*` (orange accent for step badges and latest step highlight)
 
 ### CombineDialog.tsx — Column Mapping Modal
 - Large dialog (90vw, max 1100px) with two-panel layout
@@ -374,6 +393,8 @@ SheetInfo         // { name, rowCount }
 ColOpType         // "assign_value" | "find_replace" | "regex_extract" | "extract_numbers" | "trim" | "upper" | "lower" | "clear_null" | "prefix_suffix"
 UndoStrategy      // "per-step" | "snapshot"
 ColOpStep         // { id, opType, column, description, backupTable, timestamp }
+RowOpType         // "delete_filtered" | "keep_filtered" | "remove_empty" | "remove_duplicates"
+RowOpStep         // { id, opType, description, backupTable, timestamp }
 EXCEL_MAX_ROWS    // 1,048,576
 EXCEL_MAX_COLS    // 16,384
 ```
@@ -397,6 +418,13 @@ EXCEL_MAX_COLS    // 16,384
 |----------|---------|
 | `buildColOpUpdateSQL(tableName, column, opType, params, filters)` | Builds `UPDATE ... SET ... WHERE` for in-place column operations scoped by active filters |
 | `buildStepDescription(opType, column, params)` | Human-readable label for step history display |
+
+## Row Ops SQL (`src/utils/rowOpsSQL.ts`)
+
+| Function | Purpose |
+|----------|---------|
+| `buildRowOpSQL(tableName, opType, params, filters, schema)` | Builds DELETE or CREATE OR REPLACE TABLE SQL for row operations; `delete_filtered` → `DELETE WHERE filter`, `keep_filtered` → `DELETE WHERE NOT filter`, `remove_empty` → `DELETE WHERE all-NULL/empty`, `remove_duplicates` → `CREATE OR REPLACE TABLE ... QUALIFY row_number()` |
+| `buildRowOpStepDescription(opType, params)` | Human-readable label for row ops step history display |
 
 ## Date Detection (`src/utils/dateDetection.ts`)
 
@@ -425,6 +453,7 @@ EXCEL_MAX_COLS    // 16,384
 - Combine dialog inputs also use `height: 30px` to match
 - Filter panel tabs: `.filter-panel-tabs`, `.filter-panel-tab`, `.filter-panel-tab-badge`
 - Column ops: `.colops-body`, `.colops-filter-banner` / `.colops-filter-banner-all`, `.colops-form` / `.colops-form-row` / `.colops-form-label`, `.colops-steps` / `.colops-step-item` / `.colops-step-number` / `.colops-step-desc`, `.colops-error`, `.colops-empty`
+- Row ops: `.rowops-body`, `.rowops-top`, `.rowops-op-row`, `.rowops-op-select`, `.rowops-disabled-hint`, `.rowops-col-selector` (with `-header` / `-search` / `-list` / `-actions`), `.rowops-col-item`, `.rowops-scope` / `.rowops-scope-filtered` / `.rowops-scope-all`, `.rowops-preview-count`, `.rowops-steps` / `.rowops-step-item` / `.rowops-step-number` / `.rowops-step-desc` / `.rowops-step-undo`, `.rowops-inline-success` / `.rowops-inline-error`, `.rowops-empty`
 - Export dialog: `.export-format-row`, `.export-table-grid`
 - Import retry: `.import-retry-form`
 
@@ -447,7 +476,8 @@ EXCEL_MAX_COLS    // 16,384
 15. **Lookup Merge**: User opens Lookup Merge dialog → selects right table → maps key column pairs (composite keys supported) → selects columns to merge → system checks for duplicate/NULL keys and shows warnings with options → user chooses Left/Inner Join and result mode → "Preview" shows first 10 rows → "Merge" executes the JOIN SQL; creates `merge_N` table with `filePath: "(merge)"` or replaces active table in-place
 16. **Date Conversion**: User opens Date Conversion dialog → selects date column (and optionally a group-by column) → format auto-detected per group using max-value heuristic → user resolves ambiguous formats via dropdown → selects output format → preview shows converted values + NULL parse count → apply executes `CREATE OR REPLACE TABLE ... AS SELECT` with `strftime(TRY_STRPTIME(...))` expressions (CASE WHEN for per-group formats)
 17. **Column Ops**: User opens FilterPanel → switches to "Column Ops" tab → selects column and operation → filtered-rows banner shows scope → Apply executes `UPDATE ... SET ... WHERE` scoped by active filters → adaptive undo: per-step mode creates `__colops_backup_N_table` before each op (undo restores via `ALTER TABLE RENAME`), snapshot mode creates single `__colops_snapshot_table` before first op (only "Revert All" available) → strategy chosen based on estimated table size vs 15% of free RAM → backups cleaned up on table switch
-18. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
+18. **Row Ops**: User opens FilterPanel → switches to "Row Ops" tab → selects operation (Delete Filtered, Keep Filtered, Remove Empty, Remove Duplicates) → for remove_empty/remove_duplicates can select specific columns → preview count shows rows to be removed → Apply shows confirmation Alert → executes DELETE or CREATE OR REPLACE TABLE SQL → adaptive undo: per-step mode creates `__rowops_backup_N_table` before each op, snapshot mode creates single `__rowops_snapshot_table` → independent undo history from Column Ops → backups cleaned up on table switch
+19. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
 
 ## Keyboard Shortcuts
 

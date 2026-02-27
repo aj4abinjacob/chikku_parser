@@ -18,9 +18,12 @@ import {
   countConditions,
   ColOpType,
   ColOpStep,
+  RowOpType,
+  RowOpStep,
   UndoStrategy,
 } from "../types";
 import { ColumnOpsPanel } from "./ColumnOpsPanel";
+import { RowOpsPanel } from "./RowOpsPanel";
 
 const OPERATORS: { value: FilterCondition["operator"]; label: string }[] = [
   { value: "CONTAINS", label: "contains" },
@@ -615,6 +618,12 @@ interface FilterPanelProps {
   onColOpUndo: () => Promise<void>;
   onColOpRevertAll: () => Promise<void>;
   onColOpClearAll: () => Promise<void>;
+  rowOpsSteps: RowOpStep[];
+  rowOpsUndoStrategy: UndoStrategy;
+  onRowOpApply: (opType: RowOpType, params: Record<string, string>) => Promise<void>;
+  onRowOpUndo: () => Promise<void>;
+  onRowOpRevertAll: () => Promise<void>;
+  onRowOpClearAll: () => Promise<void>;
   totalRows: number;
   unfilteredRows: number | null;
 }
@@ -630,6 +639,12 @@ export function FilterPanel({
   onColOpUndo,
   onColOpRevertAll,
   onColOpClearAll,
+  rowOpsSteps,
+  rowOpsUndoStrategy,
+  onRowOpApply,
+  onRowOpUndo,
+  onRowOpRevertAll,
+  onRowOpClearAll,
   totalRows,
   unfilteredRows,
 }: FilterPanelProps): React.ReactElement {
@@ -637,7 +652,7 @@ export function FilterPanel({
     convertToDraft(activeFilters)
   );
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
-  const [activeTab, setActiveTab] = useState<"filters" | "colops">("filters");
+  const [activeTab, setActiveTab] = useState<"filters" | "colops" | "rowops">("filters");
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -744,6 +759,19 @@ export function FilterPanel({
                 {colOpsSteps.length}
               </Tag>
             )}
+            <Button
+              className="filter-panel-tab"
+              small
+              minimal
+              active={activeTab === "rowops"}
+              onClick={() => setActiveTab("rowops")}
+              text="Row Ops"
+            />
+            {rowOpsSteps.length > 0 && activeTab !== "rowops" && (
+              <Tag minimal round intent={Intent.WARNING} className="filter-panel-tab-badge">
+                {rowOpsSteps.length}
+              </Tag>
+            )}
           </div>
         </div>
         <div className="filter-panel-header-right">
@@ -793,6 +821,20 @@ export function FilterPanel({
         totalRows={totalRows}
         unfilteredRows={unfilteredRows}
         visible={activeTab === "colops"}
+      />
+      <RowOpsPanel
+        columns={columns}
+        activeTable={activeTable}
+        activeFilters={activeFilters}
+        rowOpsSteps={rowOpsSteps}
+        undoStrategy={rowOpsUndoStrategy}
+        onApply={onRowOpApply}
+        onUndo={onRowOpUndo}
+        onRevertAll={onRowOpRevertAll}
+        onClearAll={onRowOpClearAll}
+        totalRows={totalRows}
+        unfilteredRows={unfilteredRows}
+        visible={activeTab === "rowops"}
       />
     </div>
   );
