@@ -11,7 +11,7 @@ import {
   NonIdealState,
   Tag,
 } from "@blueprintjs/core";
-import { Tooltip2 } from "@blueprintjs/popover2";
+import { Popover2, Tooltip2 } from "@blueprintjs/popover2";
 import { LoadedTable, ColumnMapping } from "../types";
 import { buildMappedCombineQuery } from "../utils/sqlBuilder";
 
@@ -502,12 +502,44 @@ export function CombineDialog({
               {sortedColumnNames.map((colName) => {
                 const tableList = allColumns.get(colName) || [];
                 const isUsed = usedInputColumns.has(colName);
+                const tableSet = new Set(tableList);
+                const notInTables = tables
+                  .map((t) => t.tableName)
+                  .filter((t) => !tableSet.has(t));
                 return (
-                  <Tooltip2
+                  <Popover2
                     key={colName}
-                    content={`In: ${tableList.join(", ")}`}
+                    interactionKind="hover"
+                    hoverOpenDelay={200}
+                    hoverCloseDelay={100}
                     placement="top"
-                    compact
+                    minimal
+                    content={
+                      <div className="combine-col-tooltip">
+                        <div className="combine-col-tooltip-section">
+                          <span className="combine-col-tooltip-label in">
+                            In ({tableList.length})
+                          </span>
+                          <div className="combine-col-tooltip-tables">
+                            {tableList.map((t) => (
+                              <span key={t} className="combine-col-tooltip-pill in">{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                        {notInTables.length > 0 && (
+                          <div className="combine-col-tooltip-section">
+                            <span className="combine-col-tooltip-label not-in">
+                              Not in ({notInTables.length})
+                            </span>
+                            <div className="combine-col-tooltip-tables">
+                              {notInTables.map((t) => (
+                                <span key={t} className="combine-col-tooltip-pill not-in">{t}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    }
                   >
                     <Button
                       text={colName}
@@ -524,7 +556,7 @@ export function CombineDialog({
                         )
                       }
                     />
-                  </Tooltip2>
+                  </Popover2>
                 );
               })}
             </div>
