@@ -270,7 +270,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Props: `totalRows`, `getRow(index)`, `ensureRange(start, end)` from chunk cache — no `rows[]` array
 - Fixed `ROW_HEIGHT = 28` for virtualizer sizing
 - Sticky header inside scroll container for automatic horizontal scroll sync
-- Cell selection: click, Shift+click (range), Cmd/Ctrl+click (toggle) — uses absolute row indices
+- Cell selection: click, click-drag (rectangular range), Shift+click (range), Cmd/Ctrl+click (toggle), Cmd/Ctrl+drag (add to selection) — uses absolute row indices
 - Copy: Cmd/Ctrl+C copies selected cells as TSV via `getRow()` lookup
 - Sort: click column header to toggle ASC/DESC
 - Column resize: drag handle on header right edge
