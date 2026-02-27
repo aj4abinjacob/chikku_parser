@@ -1,4 +1,4 @@
-import { FilterCondition, FilterGroup, ViewState, isFilterGroup } from "../types";
+import { FilterCondition, FilterGroup, SortColumn, ViewState, isFilterGroup } from "../types";
 
 /**
  * Escape a SQL identifier by doubling any embedded double quotes.
@@ -29,8 +29,11 @@ export function buildSelectQuery(
   }
 
   // ORDER BY
-  if (viewState.sortColumn) {
-    sql += ` ORDER BY ${escapeIdent(viewState.sortColumn)} ${viewState.sortDirection}`;
+  if (viewState.sortColumns.length > 0) {
+    const orderParts = viewState.sortColumns.map(
+      (sc) => `${escapeIdent(sc.column)} ${sc.direction}`
+    );
+    sql += ` ORDER BY ${orderParts.join(", ")}`;
   }
 
   return sql;
@@ -181,8 +184,7 @@ export function buildChunkQuery(
   tableName: string,
   visibleColumns: string[],
   filters: FilterGroup,
-  sortColumn: string | null,
-  sortDirection: "ASC" | "DESC",
+  sortColumns: SortColumn[],
   chunkSize: number,
   chunkIndex: number
 ): string {
@@ -198,8 +200,11 @@ export function buildChunkQuery(
     sql += ` WHERE ${whereClause}`;
   }
 
-  if (sortColumn) {
-    sql += ` ORDER BY ${escapeIdent(sortColumn)} ${sortDirection}`;
+  if (sortColumns.length > 0) {
+    const orderParts = sortColumns.map(
+      (sc) => `${escapeIdent(sc.column)} ${sc.direction}`
+    );
+    sql += ` ORDER BY ${orderParts.join(", ")}`;
   }
 
   sql += ` LIMIT ${chunkSize} OFFSET ${chunkIndex * chunkSize}`;

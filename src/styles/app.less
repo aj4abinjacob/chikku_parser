@@ -88,6 +88,70 @@ html, body, #root {
     min-height: 0;
     overflow-y: auto;
 
+    .column-header-row {
+      position: sticky;
+      top: -8px;
+      background: #fff;
+      padding-top: 8px;
+      padding-bottom: 4px;
+      margin-bottom: 4px;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+
+      h4 {
+        margin: 0;
+      }
+    }
+
+    .column-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+
+      .bp4-button {
+        font-size: 11px;
+        min-height: 20px;
+        padding: 0 6px;
+        color: #5c7080;
+
+        &:hover {
+          color: #137cbd;
+        }
+      }
+
+      .column-clear-sort-btn {
+        color: #c23030;
+
+        &:hover {
+          color: #a82a2a;
+        }
+      }
+    }
+
+    .column-search {
+      margin-bottom: 6px;
+      position: sticky;
+      top: 22px;
+      z-index: 1;
+      background: #fff;
+      padding-bottom: 2px;
+
+      .bp4-input-group .bp4-input {
+        box-shadow: none;
+        border: 1px solid rgba(17, 20, 24, 0.2);
+        background: linear-gradient(180deg, hsla(0, 0%, 100%, 0.8), hsla(0, 0%, 100%, 0.0));
+        height: 26px;
+        font-size: 12px;
+
+        &:focus {
+          box-shadow: 0 0 0 1px #137cbd, 0 0 0 3px rgba(19, 124, 189, 0.15);
+          border-color: #137cbd;
+        }
+      }
+    }
+
     h4 {
       position: sticky;
       top: -8px;
@@ -215,19 +279,56 @@ html, body, #root {
       padding-bottom: 4px;
     }
 
-    > span:not(.column-type) {
+    .column-name-text {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      flex: 1;
     }
 
     .column-type {
       color: #5c7080;
       font-size: 11px;
-      margin-left: auto;
       flex-shrink: 0;
       white-space: nowrap;
+      margin-right: 4px;
+    }
+
+    .column-sort-indicator {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 1px;
+      cursor: pointer;
+      padding: 1px 3px;
+      border-radius: 3px;
+      transition: background 0.12s, opacity 0.12s;
+      opacity: 0;
+
+      .column-sort-idle {
+        color: #8a9ba8;
+      }
+
+      &.active {
+        opacity: 1;
+        background: rgba(19, 124, 189, 0.1);
+        color: #137cbd;
+
+        .column-sort-number {
+          font-size: 9px;
+          font-weight: 700;
+          color: #137cbd;
+        }
+      }
+
+      &:hover {
+        background: rgba(19, 124, 189, 0.15);
+      }
+    }
+
+    &:hover .column-sort-indicator {
+      opacity: 1;
     }
   }
 
@@ -312,6 +413,17 @@ html, body, #root {
   .sort-indicator {
     margin-left: 4px;
     color: #5c7080;
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+
+    .sort-indicator-number {
+      font-size: 9px;
+      font-weight: 700;
+      color: #137cbd;
+      min-width: 10px;
+      text-align: center;
+    }
   }
 
   .dg-header-text {

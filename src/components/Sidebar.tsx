@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Alert,
   Button,
   Checkbox,
   Icon,
+  InputGroup,
   Intent,
 } from "@blueprintjs/core";
-import { LoadedTable, ColumnInfo } from "../types";
+import { LoadedTable, ColumnInfo, SortColumn } from "../types";
 import { DataOperationsDialog } from "./DataOperationsDialog";
 import { AggregateDialog } from "./AggregateDialog";
 import { PivotDialog } from "./PivotDialog";
@@ -19,10 +20,14 @@ interface SidebarProps {
   schema: ColumnInfo[];
   visibleColumns: string[];
   columnOrder: string[];
+  sortColumns: SortColumn[];
   filterPanelOpen: boolean;
   onSelectTable: (tableName: string) => void;
   onToggleColumn: (colName: string) => void;
+  onSetVisibleColumns: (cols: string[]) => void;
   onReorderColumns: (newOrder: string[]) => void;
+  onSort: (column: string, addLevel: boolean) => void;
+  onClearSort: () => void;
   onDataOperation: (sql: string) => void;
   onSampleTable: (n: number, isPercent: boolean) => void;
   onDeleteTable: (tableName: string) => void;
@@ -41,10 +46,14 @@ export function Sidebar({
   schema,
   visibleColumns,
   columnOrder,
+  sortColumns,
   filterPanelOpen,
   onSelectTable,
   onToggleColumn,
+  onSetVisibleColumns,
   onReorderColumns,
+  onSort,
+  onClearSort,
   onDataOperation,
   onSampleTable,
   onDeleteTable,
@@ -63,6 +72,7 @@ export function Sidebar({
   const [dateConvDialogOpen, setDateConvDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
+  const [columnSearch, setColumnSearch] = useState("");
 
   // Drag-and-drop state
   const dragIndexRef = React.useRef<number | null>(null);
@@ -76,6 +86,11 @@ export function Sidebar({
       return cleaned.size === prev.size ? prev : cleaned;
     });
   }, [tables]);
+
+  // Clear search when active table changes
+  useEffect(() => {
+    setColumnSearch("");
+  }, [activeTable]);
 
   const toggleCombineSelection = (tableName: string) => {
     setSelectedForCombine((prev) => {
@@ -91,10 +106,23 @@ export function Sidebar({
     ? columnOrder.map((name) => schema.find((c) => c.column_name === name)).filter(Boolean) as ColumnInfo[]
     : schema;
 
+  // Filter columns by search
+  const filteredColumns = useMemo(() => {
+    if (!columnSearch.trim()) return orderedColumns;
+    const q = columnSearch.toLowerCase();
+    return orderedColumns.filter((col) => col.column_name.toLowerCase().includes(q));
+  }, [orderedColumns, columnSearch]);
+
+  // Build a sort index map for quick lookup
+  const sortIndexMap = useMemo(() => {
+    const map = new Map<string, { index: number; direction: "ASC" | "DESC" }>();
+    sortColumns.forEach((sc, i) => map.set(sc.column, { index: i + 1, direction: sc.direction }));
+    return map;
+  }, [sortColumns]);
+
   const handleDragStart = (e: React.DragEvent, index: number) => {
     dragIndexRef.current = index;
     e.dataTransfer.effectAllowed = "move";
-    // Make the drag image slightly transparent
     const target = e.currentTarget as HTMLElement;
     target.classList.add("dragging");
   };
@@ -124,7 +152,6 @@ export function Sidebar({
     const newOrder = [...orderedColumns.map((c) => c.column_name)];
     const [moved] = newOrder.splice(fromIndex, 1);
     let toIndex = dropTarget.index;
-    // Adjust index after removal
     if (fromIndex < toIndex) toIndex--;
     if (dropTarget.position === "bottom") toIndex++;
     newOrder.splice(toIndex, 0, moved);
@@ -139,6 +166,10 @@ export function Sidebar({
     dragIndexRef.current = null;
     setDropTarget(null);
   };
+
+  const allColumnNames = orderedColumns.map((c) => c.column_name);
+  const allVisible = visibleColumns.length === allColumnNames.length;
+  const noneVisible = visibleColumns.length === 0;
 
   return (
     <div className="sidebar">
@@ -217,36 +248,107 @@ export function Sidebar({
       {/* Column visibility */}
       {schema.length > 0 && (
         <div className="sidebar-section sidebar-section-columns">
-          <h4>Columns</h4>
-          {orderedColumns.map((col, index) => (
-            <div
-              key={col.column_name}
-              className={`column-item${
-                dropTarget?.index === index
-                  ? ` drag-over-${dropTarget.position}`
-                  : ""
-              }`}
-              draggable
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onDragEnd={handleDragEnd}
-            >
-              <Icon
-                icon="drag-handle-vertical"
-                size={12}
-                className="drag-handle"
+          <div className="column-header-row">
+            <h4>Columns</h4>
+            <div className="column-header-actions">
+              <Button
+                minimal
+                small
+                text="All"
+                title="Show all columns"
+                disabled={allVisible}
+                onClick={() => onSetVisibleColumns(allColumnNames)}
               />
-              <Checkbox
-                checked={visibleColumns.includes(col.column_name)}
-                onChange={() => onToggleColumn(col.column_name)}
-                style={{ marginBottom: 0 }}
+              <Button
+                minimal
+                small
+                text="None"
+                title="Hide all columns"
+                disabled={noneVisible}
+                onClick={() => onSetVisibleColumns([])}
               />
-              <span>{col.column_name}</span>
-              <span className="column-type">{col.column_type}</span>
+              {sortColumns.length > 0 && (
+                <Button
+                  minimal
+                  small
+                  icon="sort"
+                  title="Clear all sorts"
+                  onClick={onClearSort}
+                  className="column-clear-sort-btn"
+                />
+              )}
             </div>
-          ))}
+          </div>
+          {orderedColumns.length > 8 && (
+            <div className="column-search">
+              <InputGroup
+                leftIcon="search"
+                placeholder="Search columns..."
+                value={columnSearch}
+                onChange={(e) => setColumnSearch(e.target.value)}
+                rightElement={
+                  columnSearch ? (
+                    <Button icon="cross" minimal small onClick={() => setColumnSearch("")} />
+                  ) : undefined
+                }
+                small
+              />
+            </div>
+          )}
+          {filteredColumns.map((col, index) => {
+            const sortInfo = sortIndexMap.get(col.column_name);
+            return (
+              <div
+                key={col.column_name}
+                className={`column-item${
+                  dropTarget?.index === index
+                    ? ` drag-over-${dropTarget.position}`
+                    : ""
+                }`}
+                title={col.column_name}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onDragEnd={handleDragEnd}
+              >
+                <Icon
+                  icon="drag-handle-vertical"
+                  size={12}
+                  className="drag-handle"
+                />
+                <Checkbox
+                  checked={visibleColumns.includes(col.column_name)}
+                  onChange={() => onToggleColumn(col.column_name)}
+                  style={{ marginBottom: 0 }}
+                />
+                <span className="column-name-text">{col.column_name}</span>
+                <span className="column-type">{col.column_type}</span>
+                <span
+                  className={`column-sort-indicator${sortInfo ? " active" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSort(col.column_name, e.shiftKey);
+                  }}
+                  title={
+                    sortInfo
+                      ? `Sort ${sortInfo.index}: ${sortInfo.direction} (click to toggle, shift+click for multi-sort)`
+                      : "Click to sort (shift+click for multi-sort)"
+                  }
+                >
+                  {sortInfo ? (
+                    <>
+                      <span className="column-sort-number">{sortInfo.index}</span>
+                      <Icon icon={sortInfo.direction === "ASC" ? "chevron-up" : "chevron-down"} size={10} />
+                    </>
+                  ) : (
+                    <Icon icon="double-caret-vertical" size={10} className="column-sort-idle" />
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 

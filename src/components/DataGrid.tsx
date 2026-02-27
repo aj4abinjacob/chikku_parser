@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@blueprintjs/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { SortColumn } from "../types";
 
 const TOOLTIP_DELAY = 600; // ms before tooltip appears
 
@@ -15,9 +16,8 @@ interface DataGridProps {
   getRow: (absoluteIndex: number) => any | null;
   ensureRange: (startIndex: number, endIndex: number) => void;
   columns: string[];
-  sortColumn: string | null;
-  sortDirection: "ASC" | "DESC";
-  onSort: (column: string) => void;
+  sortColumns: SortColumn[];
+  onSort: (column: string, addLevel: boolean) => void;
   onReorderColumns?: (newOrder: string[]) => void;
   resetKey: number;
 }
@@ -27,8 +27,7 @@ export function DataGrid({
   getRow,
   ensureRange,
   columns,
-  sortColumn,
-  sortDirection,
+  sortColumns,
   onSort,
   onReorderColumns,
   resetKey,
@@ -75,6 +74,13 @@ export function DataGrid({
       if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
     };
   }, []);
+
+  // ── Sort index map ──
+  const sortIndexMap = useMemo(() => {
+    const map = new Map<string, { index: number; direction: "ASC" | "DESC" }>();
+    sortColumns.forEach((sc, i) => map.set(sc.column, { index: i + 1, direction: sc.direction }));
+    return map;
+  }, [sortColumns]);
 
   // ── Column resize state ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -410,7 +416,7 @@ export function DataGrid({
                   .join(" ")}
                 style={{ width: columnWidths[col] ?? 150 }}
                 draggable={!!onReorderColumns}
-                onClick={() => onSort(col)}
+                onClick={(e) => onSort(col, e.shiftKey)}
                 onDragStart={(e) => handleHeaderDragStart(e, col)}
                 onDragOver={(e) => handleHeaderDragOver(e, col)}
                 onDragLeave={handleHeaderDragLeave}
@@ -418,11 +424,14 @@ export function DataGrid({
                 onDragEnd={handleHeaderDragEnd}
               >
                 <span className="dg-header-text">{col}</span>
-                {sortColumn === col && (
+                {sortIndexMap.has(col) && (
                   <span className="sort-indicator">
+                    {sortColumns.length > 1 && (
+                      <span className="sort-indicator-number">{sortIndexMap.get(col)!.index}</span>
+                    )}
                     <Icon
                       icon={
-                        sortDirection === "ASC" ? "chevron-up" : "chevron-down"
+                        sortIndexMap.get(col)!.direction === "ASC" ? "chevron-up" : "chevron-down"
                       }
                       size={12}
                     />

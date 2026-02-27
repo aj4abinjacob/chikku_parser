@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@blueprintjs/core";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
@@ -104,8 +104,7 @@ export function App(): React.ReactElement {
     visibleColumns: [],
     columnOrder: [],
     filters: { logic: "AND", children: [] },
-    sortColumn: null,
-    sortDirection: "ASC",
+    sortColumns: [],
   });
 
   // Use refs so IPC callbacks always see latest state
@@ -400,8 +399,7 @@ export function App(): React.ReactElement {
         filters: { logic: "AND", children: [] },
         visibleColumns: [],
         columnOrder: [],
-        sortColumn: null,
-        sortDirection: "ASC",
+        sortColumns: [],
       }));
       setResetKey((k) => k + 1);
       setCombineDialogOpen(false);
@@ -457,15 +455,46 @@ export function App(): React.ReactElement {
   );
 
   // Sort handler
-  const handleSort = useCallback((column: string) => {
-    setViewState((prev) => ({
-      ...prev,
-      sortColumn: column,
-      sortDirection:
-        prev.sortColumn === column && prev.sortDirection === "ASC"
-          ? "DESC"
-          : "ASC",
-    }));
+  const handleSort = useCallback((column: string, addLevel: boolean) => {
+    setViewState((prev) => {
+      const existing = prev.sortColumns.findIndex((sc) => sc.column === column);
+
+      if (addLevel) {
+        // Shift+click: add/toggle/remove sort level
+        if (existing >= 0) {
+          const current = prev.sortColumns[existing];
+          if (current.direction === "ASC") {
+            // Toggle to DESC
+            const next = [...prev.sortColumns];
+            next[existing] = { column, direction: "DESC" };
+            return { ...prev, sortColumns: next };
+          } else {
+            // Remove from sort
+            return { ...prev, sortColumns: prev.sortColumns.filter((_, i) => i !== existing) };
+          }
+        } else {
+          // Add new sort level
+          return { ...prev, sortColumns: [...prev.sortColumns, { column, direction: "ASC" }] };
+        }
+      } else {
+        // Normal click: single-column sort
+        if (prev.sortColumns.length === 1 && prev.sortColumns[0].column === column) {
+          // Toggle direction or remove
+          if (prev.sortColumns[0].direction === "ASC") {
+            return { ...prev, sortColumns: [{ column, direction: "DESC" }] };
+          } else {
+            return { ...prev, sortColumns: [] };
+          }
+        }
+        return { ...prev, sortColumns: [{ column, direction: "ASC" }] };
+      }
+    });
+    setResetKey((k) => k + 1);
+  }, []);
+
+  // Clear all sorts
+  const handleClearSort = useCallback(() => {
+    setViewState((prev) => ({ ...prev, sortColumns: [] }));
     setResetKey((k) => k + 1);
   }, []);
 
@@ -519,8 +548,7 @@ export function App(): React.ReactElement {
           filters: { logic: "AND", children: [] },
           visibleColumns: [],
           columnOrder: [],
-          sortColumn: null,
-          sortDirection: "ASC",
+          sortColumns: [],
         }));
         setResetKey((k) => k + 1);
       } catch (err) {
@@ -558,8 +586,7 @@ export function App(): React.ReactElement {
           filters: { logic: "AND", children: [] },
           visibleColumns: [],
           columnOrder: [],
-          sortColumn: null,
-          sortDirection: "ASC",
+          sortColumns: [],
         }));
         setResetKey((k) => k + 1);
       } catch (err) {
@@ -597,8 +624,7 @@ export function App(): React.ReactElement {
           filters: { logic: "AND", children: [] },
           visibleColumns: [],
           columnOrder: [],
-          sortColumn: null,
-          sortDirection: "ASC",
+          sortColumns: [],
         }));
         setResetKey((k) => k + 1);
       } catch (err) {
@@ -652,8 +678,7 @@ export function App(): React.ReactElement {
             filters: { logic: "AND", children: [] },
             visibleColumns: [],
             columnOrder: [],
-            sortColumn: null,
-            sortDirection: "ASC",
+            sortColumns: [],
           }));
           setResetKey((k) => k + 1);
         }
@@ -1022,6 +1047,9 @@ export function App(): React.ReactElement {
             schema={schema}
             visibleColumns={viewState.visibleColumns}
             columnOrder={viewState.columnOrder}
+            sortColumns={viewState.sortColumns}
+            onSort={handleSort}
+            onClearSort={handleClearSort}
             onSelectTable={(name) => {
               setActiveTable(name);
               setViewState((prev) => ({
@@ -1029,12 +1057,15 @@ export function App(): React.ReactElement {
                 filters: { logic: "AND", children: [] },
                 visibleColumns: [],
                 columnOrder: [],
-                sortColumn: null,
-                sortDirection: "ASC",
+                sortColumns: [],
               }));
               setResetKey((k) => k + 1);
             }}
             onToggleColumn={toggleColumn}
+            onSetVisibleColumns={(cols: string[]) => {
+              setViewState((prev) => ({ ...prev, visibleColumns: cols }));
+              setResetKey((k) => k + 1);
+            }}
             onReorderColumns={reorderColumns}
             onDataOperation={handleDataOperation}
             onSampleTable={handleSampleTable}
@@ -1067,8 +1098,7 @@ export function App(): React.ReactElement {
                 getRow={getRow}
                 ensureRange={ensureRange}
                 columns={viewState.visibleColumns}
-                sortColumn={viewState.sortColumn}
-                sortDirection={viewState.sortDirection}
+                sortColumns={viewState.sortColumns}
                 onSort={handleSort}
                 onReorderColumns={reorderVisibleColumns}
                 resetKey={resetKey}

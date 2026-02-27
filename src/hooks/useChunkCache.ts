@@ -48,7 +48,8 @@ export function useChunkCache({
 
   // Build a key from all deps that should trigger cache invalidation
   const filtersKey = JSON.stringify(viewState.filters);
-  const cacheKey = `${tableName}|${enabled}|${visibleColumnsKey}|${filtersKey}|${viewState.sortColumn}|${viewState.sortDirection}|${dataVersion}`;
+  const sortKey = JSON.stringify(viewState.sortColumns);
+  const cacheKey = `${tableName}|${enabled}|${visibleColumnsKey}|${filtersKey}|${sortKey}|${dataVersion}`;
   const prevCacheKeyRef = useRef<string>("");
 
   // Reset cache synchronously during render (before effects run)
@@ -86,8 +87,7 @@ export function useChunkCache({
     tableName,
     enabled,
     filtersKey,
-    viewState.sortColumn,
-    viewState.sortDirection,
+    sortKey,
     visibleColumnsKey,
   ]);
 
@@ -101,8 +101,7 @@ export function useChunkCache({
         table,
         vs.visibleColumns,
         vs.filters,
-        vs.sortColumn,
-        vs.sortDirection,
+        vs.sortColumns,
         CHUNK_SIZE,
         chunkIndex
       );

@@ -47,7 +47,7 @@ export function ExportDialog({
   const hasViewModifications = useMemo(() => {
     if (!activeTable) return false;
     const hasFilters = hasActiveFilters(viewState.filters);
-    const hasSort = viewState.sortColumn !== null;
+    const hasSort = viewState.sortColumns.length > 0;
     const allCols = schema.map((c) => c.column_name);
     const hasHiddenCols = viewState.visibleColumns.length < allCols.length;
     const hasReorderedCols =

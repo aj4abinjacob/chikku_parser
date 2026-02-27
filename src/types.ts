@@ -64,12 +64,16 @@ export interface ColumnMapping {
   inputColumns: string[];
 }
 
+export interface SortColumn {
+  column: string;
+  direction: "ASC" | "DESC";
+}
+
 export interface ViewState {
   visibleColumns: string[];
   columnOrder: string[];
   filters: FilterGroup;
-  sortColumn: string | null;
-  sortDirection: "ASC" | "DESC";
+  sortColumns: SortColumn[];
 }
 
 export type FileFormat = "csv" | "tsv" | "json" | "parquet" | "xlsx" | "xls";

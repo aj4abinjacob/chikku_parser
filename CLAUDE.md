@@ -156,7 +156,10 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Delete table**: hover-reveal `x` button on each table row; opens BlueprintJS `Alert` confirmation before calling `onDeleteTable`
 - **Selective combine**: checkboxes next to each table (visible when 2+ tables loaded, including combined tables) to select which tables to combine; `selectedForCombine: Set<string>` state cleaned up when tables change
 - "Combine N Selected" button (enabled when 2+ tables selected, passes selected names to `onCombine`)
-- Column visibility checkboxes
+- Column visibility checkboxes with "All" / "None" buttons in header
+- Column search input (shown when 8+ columns) to filter column list by name
+- Column pills show native tooltip on hover with full column name
+- Sort indicators on column pills: numbered badge with direction arrow for active sorts, subtle icon on hover for unsorted; click to sort, Shift+click for multi-sort; "Clear sorts" button in header when sorts active
 - "Data Operations" button opens `DataOperationsDialog`
 - "Aggregate" button opens `AggregateDialog`
 - "Pivot Table" button opens `PivotDialog`
@@ -276,7 +279,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Sticky header inside scroll container for automatic horizontal scroll sync
 - Cell selection: click, click-drag (rectangular range), Shift+click (range), Cmd/Ctrl+click (toggle), Cmd/Ctrl+drag (add to selection) — uses absolute row indices
 - Copy: Cmd/Ctrl+C copies selected cells as TSV via `getRow()` lookup
-- Sort: click column header to toggle ASC/DESC
+- Multi-level sort: click column header for single-sort (ASC/DESC/remove), Shift+click to add sort levels with numbered indicators
 - Column resize: drag handle on header right edge
 - Column reorder: drag-and-drop header cells
 - Row numbering: absolute 1-based index in first column
@@ -369,7 +372,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - LRU eviction: evicts least-recently-used chunks when cache exceeds limit
 - Generation counter: discards stale responses after cache resets (table/filter/sort changes)
 - Tracks in-flight requests to prevent duplicate fetches
-- Auto-resets on `tableName`, `filters`, `sortColumn`, `sortDirection`, or `visibleColumns` change
+- Auto-resets on `tableName`, `filters`, `sortColumns`, or `visibleColumns` change
 - Returns: `{ totalRows, getRow(index), isRowLoaded(index), ensureRange(start, end) }`
 - Uses `buildChunkQuery()` for per-chunk SQL and `buildCountQuery()` for total count
 
@@ -386,7 +389,8 @@ isFilterGroup()   // type guard: node is FilterGroup
 hasActiveFilters() // checks if group has any children
 countConditions() // recursively counts leaf conditions in a group
 ColumnMapping     // { id, outputColumn, inputColumns: string[] }
-ViewState         // { visibleColumns[], columnOrder[], filters: FilterGroup, sortColumn, sortDirection }
+SortColumn        // { column: string, direction: "ASC" | "DESC" }
+ViewState         // { visibleColumns[], columnOrder[], filters: FilterGroup, sortColumns: SortColumn[] }
 FileFormat        // "csv" | "tsv" | "json" | "parquet" | "xlsx" | "xls"
 ImportOptions     // { csvDelimiter?, csvIgnoreErrors?, excelSheet? }
 SheetInfo         // { name, rowCount }
@@ -409,7 +413,7 @@ EXCEL_MAX_COLS    // 16,384
 | `buildCombineQuery(tableNames[])` | Simple `SELECT * ... UNION ALL` (used by export) |
 | `escapeIdent(name)` | Escape a SQL identifier by doubling embedded double quotes |
 | `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases, NULL for missing columns, auto VARCHAR cast on type mismatch, trimmed output names |
-| `buildChunkQuery(tableName, columns, filters: FilterGroup, sort, direction, chunkSize, chunkIndex)` | SELECT with LIMIT/OFFSET for chunk-based virtual scroll loading |
+| `buildChunkQuery(tableName, columns, filters: FilterGroup, sortColumns: SortColumn[], chunkSize, chunkIndex)` | SELECT with multi-column ORDER BY, LIMIT/OFFSET for chunk-based virtual scroll loading |
 | `buildCountQuery(tableName, filters: FilterGroup)` | `SELECT COUNT(*) ... WHERE` for total row count |
 
 ## Column Ops SQL (`src/utils/colOpsSQL.ts`)
@@ -448,7 +452,9 @@ EXCEL_MAX_COLS    // 16,384
 - Color palette: `#f5f8fa` (bg), `#394b59` (text), `#5c7080` (secondary), `#137cbd` (accent blue), `#d8e1e8` (borders)
 - Layout: flexbox throughout — `.app-container` (column) → `.main-layout` (row) → `.sidebar` (fixed 280px) + `.data-area` (flex: 1)
 - DataGrid uses div-based layout: `.data-grid-container` → `.data-grid-scroll` → `.dg-header` (sticky) + virtual `.dg-row` elements
+- Sidebar columns: `.column-header-row`, `.column-header-actions`, `.column-search`, `.column-name-text`, `.column-sort-indicator` (with `.active`, `.column-sort-number`, `.column-sort-idle`), `.column-clear-sort-btn`
 - Cell classes: `.dg-cell`, `.dg-row-num-cell`, `.dg-header-cell`, `.cell-selected`, `.loading-cell`, `.column-dragging`
+- Sort indicator: `.sort-indicator`, `.sort-indicator-number` (numbered badge for multi-sort)
 - Filter inputs match HTMLSelect appearance: `height: 30px`, border styling
 - Combine dialog inputs also use `height: 30px` to match
 - Filter panel tabs: `.filter-panel-tabs`, `.filter-panel-tab`, `.filter-panel-tab-badge`
