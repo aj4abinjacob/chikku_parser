@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+interface RegexPattern {
+  id: string;
+  title: string;
+  pattern: string;
+  description: string;
+  category?: string;
+  isBuiltin: boolean;
+}
+
 export interface DbApi {
   loadCSV: (filePath: string, tableName: string) => Promise<any>;
   loadFile: (filePath: string, tableName: string, options?: { csvDelimiter?: string; csvIgnoreErrors?: boolean; excelSheet?: string }) => Promise<any>;
@@ -14,6 +23,11 @@ export interface DbApi {
   saveDialog: () => Promise<string | null>;
   saveFileDialog: (format: string) => Promise<string | null>;
   getFreeMemory: () => Promise<number>;
+  getRegexPatterns: () => Promise<RegexPattern[]>;
+  saveUserPattern: (pattern: RegexPattern) => Promise<boolean>;
+  deleteUserPattern: (patternId: string) => Promise<boolean>;
+  exportPatterns: () => Promise<boolean>;
+  importPatterns: () => Promise<{ imported: number; error?: string }>;
   onOpenFiles: (callback: (filePaths: string[]) => void) => void;
   onAddFiles: (callback: (filePaths: string[]) => void) => void;
   onExportCSV: (callback: () => void) => void;
@@ -44,6 +58,13 @@ contextBridge.exposeInMainWorld("api", {
 
   // System
   getFreeMemory: () => ipcRenderer.invoke("system:free-memory"),
+
+  // Regex patterns
+  getRegexPatterns: () => ipcRenderer.invoke("patterns:get-all"),
+  saveUserPattern: (pattern: RegexPattern) => ipcRenderer.invoke("patterns:save-user", pattern),
+  deleteUserPattern: (patternId: string) => ipcRenderer.invoke("patterns:delete-user", patternId),
+  exportPatterns: () => ipcRenderer.invoke("patterns:export"),
+  importPatterns: () => ipcRenderer.invoke("patterns:import"),
 
   // Menu events from main process
   onOpenFiles: (callback: (filePaths: string[]) => void) => {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   Button,
   Callout,
@@ -10,6 +10,8 @@ import {
   Icon,
 } from "@blueprintjs/core";
 import { ColumnInfo, ColOpType, ColOpStep, UndoStrategy, FilterGroup } from "../types";
+import { RegexPatternPicker } from "./RegexPatternPicker";
+import { RegexPatternManagerDialog } from "./RegexPatternManagerDialog";
 
 const OP_OPTIONS: { value: ColOpType; label: string }[] = [
   { value: "assign_value", label: "Assign Value" },
@@ -63,6 +65,12 @@ export function ColumnOpsPanel({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
+  const [patternManagerOpen, setPatternManagerOpen] = useState(false);
+  const [patternRefreshKey, setPatternRefreshKey] = useState(0);
+
+  const handlePatternsChanged = useCallback(() => {
+    setPatternRefreshKey((k) => k + 1);
+  }, []);
 
   const hasFilter = unfilteredRows !== null;
   const isFiltered = hasFilter && totalRows !== unfilteredRows;
@@ -163,6 +171,13 @@ export function ColumnOpsPanel({
               onChange={(e) => updateParam("pattern", e.target.value)}
               placeholder="Find..."
               onKeyDown={(e) => { if (e.key === "Enter") handleApply(); }}
+              rightElement={params.useRegex === "true" ? (
+                <RegexPatternPicker
+                  key={patternRefreshKey}
+                  onSelect={(p) => updateParam("pattern", p)}
+                  onOpenManager={() => setPatternManagerOpen(true)}
+                />
+              ) : undefined}
             />
             <Icon icon="arrow-right" className="colops-arrow-icon" />
             <InputGroup
@@ -189,6 +204,13 @@ export function ColumnOpsPanel({
               onChange={(e) => updateParam("pattern", e.target.value)}
               placeholder="Pattern..."
               onKeyDown={(e) => { if (e.key === "Enter") handleApply(); }}
+              rightElement={
+                <RegexPatternPicker
+                  key={patternRefreshKey}
+                  onSelect={(p) => updateParam("pattern", p)}
+                  onOpenManager={() => setPatternManagerOpen(true)}
+                />
+              }
             />
             <InputGroup
               className="colops-group-input"
@@ -371,6 +393,12 @@ export function ColumnOpsPanel({
       >
         <p>Revert the table to its state before any column operations were applied?</p>
       </Alert>
+
+      <RegexPatternManagerDialog
+        isOpen={patternManagerOpen}
+        onClose={() => setPatternManagerOpen(false)}
+        onPatternsChanged={handlePatternsChanged}
+      />
     </div>
   );
 }

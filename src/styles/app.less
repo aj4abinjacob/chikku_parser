@@ -2547,3 +2547,249 @@ html, body, #root {
     max-width: 260px;
   }
 }
+
+// ── Regex Pattern Picker ──
+
+.regex-picker-popover {
+  width: 320px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+
+.regex-picker-search {
+  padding: 8px 8px 4px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #e1e8ed;
+
+  .bp4-input-group .bp4-input {
+    box-shadow: none;
+    border: 1px solid rgba(17, 20, 24, 0.2);
+    height: 28px;
+    font-size: 12px;
+
+    &:focus {
+      box-shadow: 0 0 0 1px #137cbd, 0 0 0 3px rgba(19, 124, 189, 0.15);
+      border-color: #137cbd;
+    }
+  }
+}
+
+.regex-picker-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: 300px;
+  padding: 4px 0;
+}
+
+.regex-picker-loading,
+.regex-picker-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #8a9ba8;
+}
+
+.regex-picker-category {
+  &:not(:first-child) {
+    border-top: 1px solid #e1e8ed;
+    margin-top: 2px;
+    padding-top: 2px;
+  }
+}
+
+.regex-picker-category-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #5c7080;
+  letter-spacing: 0.5px;
+}
+
+.regex-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+
+  &:hover {
+    background: rgba(19, 124, 189, 0.06);
+  }
+}
+
+.regex-picker-item-title {
+  font-size: 12px;
+  color: #394b59;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.regex-picker-item-pattern {
+  font-size: 11px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  color: #8a9ba8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.regex-picker-footer {
+  border-top: 1px solid #e1e8ed;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+// ── Regex Pattern Manager Dialog ──
+
+.regex-manager-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.regex-manager-error,
+.regex-manager-success {
+  font-size: 13px;
+}
+
+.regex-manager-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.regex-manager-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #5c7080;
+  letter-spacing: 0.5px;
+}
+
+.regex-manager-table-wrapper {
+  border: 1px solid #d8e1e8;
+  border-radius: 4px;
+  overflow: auto;
+  max-height: 200px;
+  background: #fff;
+}
+
+.regex-manager-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: #5c7080;
+    padding: 5px 8px;
+    border-bottom: 1px solid #d8e1e8;
+    background: #f5f8fa;
+    position: sticky;
+    top: 0;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #e1e8ed;
+    white-space: nowrap;
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  code {
+    font-size: 11px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+    color: #5c7080;
+    background: #f5f8fa;
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tr:hover td {
+    background: rgba(19, 124, 189, 0.04);
+  }
+
+  tr.regex-manager-editing td {
+    background: rgba(19, 124, 189, 0.08);
+  }
+}
+
+.regex-manager-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: #8a9ba8;
+  text-align: center;
+  border: 1px dashed #d8e1e8;
+  border-radius: 4px;
+}
+
+.regex-manager-form {
+  padding: 8px 10px;
+  border: 1px solid #d8e1e8;
+  border-radius: 4px;
+  background: #fafcfd;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.regex-manager-form-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #5c7080;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.regex-manager-form-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.regex-manager-form-title {
+  flex: 1;
+}
+
+.regex-manager-form-category {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.regex-manager-form-pattern {
+  width: 100%;
+}
+
+.regex-manager-form-desc {
+  flex: 1;
+}
+
+.regex-manager-footer-left {
+  display: flex;
+  gap: 4px;
+}

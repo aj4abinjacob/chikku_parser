@@ -46,6 +46,7 @@ npm run clean        # Remove dist/
 - IPC handlers resolve the correct DB via `event.sender.id`
 - **Excel import strategy**: converts sheet to temp CSV via `xlsx.utils.sheet_to_csv()`, loads into DuckDB with `read_csv_auto()`, cleans up temp file in `finally` block
 - **"Open With" / file association support**: handles files opened via OS "Open With" context menu, drag-to-dock (macOS), and CLI arguments (Windows/Linux). Uses `app.on("open-file")` for macOS, `process.argv` parsing for CLI args, and single-instance lock (`requestSingleInstanceLock`) to forward files to the existing window. Files received before the renderer is ready are queued in `pendingOpenFiles[]` and flushed via `did-finish-load`. Supported extensions defined in `SUPPORTED_EXTENSIONS` Set. File associations registered in `package.json` `build.fileAssociations`.
+- **Regex Pattern Library**: 18 built-in patterns in `app/regex-patterns.json` (copied to `dist/` at build time). Patterns fetched from GitHub `raw.githubusercontent.com` with 5s timeout, fallback to bundled copy, cached in memory. User patterns stored in `app.getPath('userData')/user-regex-patterns.json`. Uses Node.js `https` module (not subject to CSP).
 
 ### IPC Handlers
 
@@ -64,6 +65,11 @@ npm run clean        # Remove dist/
 | `dialog:save-csv` | (Legacy) Native save dialog for CSV |
 | `dialog:save-file` | Save dialog with format-specific filters |
 | `system:free-memory` | Returns `os.freemem()` — used by Column Ops to choose undo strategy |
+| `patterns:get-all` | Fetch regex patterns from GitHub (5s timeout, fallback to bundled `dist/regex-patterns.json`), cache in memory, merge with user patterns from `app.getPath('userData')/user-regex-patterns.json` |
+| `patterns:save-user` | Add or update a user regex pattern in the local JSON file |
+| `patterns:delete-user` | Remove a user regex pattern from the local JSON file |
+| `patterns:export` | Save dialog + write user patterns to chosen path |
+| `patterns:import` | Open dialog + read JSON + merge into user patterns (dedup by ID) |
 
 ### Preload (`app/preload.ts`)
 
@@ -84,6 +90,11 @@ interface DbApi {
   saveDialog(): Promise<string | null>
   saveFileDialog(format: string): Promise<string | null>
   getFreeMemory(): Promise<number>                           // os.freemem()
+  getRegexPatterns(): Promise<RegexPattern[]>                // Built-in + user patterns
+  saveUserPattern(pattern: RegexPattern): Promise<boolean>   // Add/update user pattern
+  deleteUserPattern(patternId: string): Promise<boolean>     // Remove user pattern
+  exportPatterns(): Promise<boolean>                         // Export user patterns to file
+  importPatterns(): Promise<{imported, error?}>              // Import patterns from file
   onOpenFiles(callback: (paths: string[]) => void): void   // Cmd+O
   onAddFiles(callback: (paths: string[]) => void): void    // Cmd+Shift+O
   onExportCSV(callback: () => void): void                   // Cmd+E
@@ -97,7 +108,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (18 files)
+- `src/components/` — React components (20 files)
 - `src/hooks/` — Custom React hooks (`useChunkCache`)
 - `src/utils/` — SQL query builder, date detection, column ops SQL, and row ops SQL utilities
 - `src/types.ts` — All TypeScript interfaces
@@ -211,6 +222,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
   - `replace_empty_null` — replaces empty and whitespace-only strings with actual NULL on all or selected VARCHAR columns; non-VARCHAR columns are skipped; optional column selector with search
   - `replace_sentinel_null` — replaces sentinel values (None, none, NONE, NaN, Nan, nan, NULL, null, Null, N/A, n/a, NA, na, #N/A, #NA) with actual NULL on all or selected VARCHAR columns; non-VARCHAR columns are skipped; optional column selector with search
 - Live preview: fetches 3 sample rows and shows before/after for most operations
+- **Regex pattern picker**: `RegexPatternPicker` button appears as `rightElement` on pattern InputGroup for `regex_extract` and `replace_regex` operations; also renders `RegexPatternManagerDialog`
 - Builds complete SQL internally and passes to `onApply` (or `onSampleTable` for sample_table)
 
 ### AggregateDialog.tsx — Aggregate Summary Modal
@@ -327,7 +339,25 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
   - Strategy chosen on first op based on `rowCount * numColumns * 100` vs `os.freemem() * 0.15`
 - **Backup naming**: `__colops_backup_N_tableName` (per-step) or `__colops_snapshot_tableName` (snapshot) — never added to `tables` state
 - Clear confirmation (Alert) drops all backups; Revert All confirmation restores snapshot
+- **Regex pattern picker**: `RegexPatternPicker` button appears as `rightElement` on pattern InputGroup for `regex_extract` and `find_replace` (when regex mode enabled); also renders `RegexPatternManagerDialog`
 - CSS namespace: `.colops-*`
+
+### RegexPatternPicker.tsx — Inline Regex Pattern Picker
+- Small `Button` (book/manual icon, minimal, small) with `Popover2`
+- Searchable list grouped by category (Numbers, Contact, Web, Date/Time, Text, My Patterns)
+- Each item shows title + monospace pattern preview; native tooltip with description
+- Click fills the regex input via `onSelect(pattern)` callback
+- "Manage Patterns..." link at bottom opens the manager dialog via `onOpenManager` callback
+- Lazy-loads patterns on first popover open via `window.api.getRegexPatterns()`
+- CSS namespace: `.regex-picker-*`
+
+### RegexPatternManagerDialog.tsx — Regex Pattern Manager
+- BlueprintJS Dialog with two sections: Built-in (read-only table) and My Patterns (editable table with edit/delete buttons)
+- Inline add/edit form with title, pattern, description, category fields
+- Delete with confirmation Alert
+- Import/Export buttons in dialog footer
+- Calls `onPatternsChanged()` to signal picker to refresh its cached patterns
+- CSS namespace: `.regex-manager-*`
 
 ### RowOpsPanel.tsx — Row Ops Tab Body
 - Row-level operations (delete, keep, deduplicate, remove empty) with independent undo history
@@ -402,6 +432,7 @@ UndoStrategy      // "per-step" | "snapshot"
 ColOpStep         // { id, opType, column, description, backupTable, timestamp }
 RowOpType         // "delete_filtered" | "keep_filtered" | "remove_empty" | "remove_duplicates"
 RowOpStep         // { id, opType, description, backupTable, timestamp }
+RegexPattern      // { id, title, pattern, description, category?, isBuiltin }
 EXCEL_MAX_ROWS    // 1,048,576
 EXCEL_MAX_COLS    // 16,384
 ```
@@ -465,6 +496,8 @@ EXCEL_MAX_COLS    // 16,384
 - Row ops: `.rowops-body`, `.rowops-top`, `.rowops-op-row`, `.rowops-op-select`, `.rowops-disabled-hint`, `.rowops-col-selector` (with `-header` / `-search` / `-list` / `-actions`), `.rowops-col-item`, `.rowops-scope` / `.rowops-scope-filtered` / `.rowops-scope-all`, `.rowops-preview-count`, `.rowops-steps` / `.rowops-step-item` / `.rowops-step-number` / `.rowops-step-desc` / `.rowops-step-undo`, `.rowops-inline-success` / `.rowops-inline-error`, `.rowops-empty`
 - Export dialog: `.export-format-row`, `.export-table-grid`
 - Import retry: `.import-retry-form`
+- Regex picker: `.regex-picker-popover`, `.regex-picker-search`, `.regex-picker-list`, `.regex-picker-category`, `.regex-picker-category-label`, `.regex-picker-item`, `.regex-picker-item-title`, `.regex-picker-item-pattern`, `.regex-picker-footer`
+- Regex manager: `.regex-manager-content`, `.regex-manager-section`, `.regex-manager-section-header`, `.regex-manager-table-wrapper`, `.regex-manager-table`, `.regex-manager-empty`, `.regex-manager-form`, `.regex-manager-form-header`, `.regex-manager-form-row`, `.regex-manager-footer-left`
 
 ## Data Flow
 

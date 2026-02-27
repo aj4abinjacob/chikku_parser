@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from "electron
 import path from "path";
 import fs from "fs";
 import os from "os";
+import https from "https";
 import log from "electron-log";
 import { Database } from "duckdb";
 import * as XLSX from "xlsx";
@@ -424,6 +425,154 @@ ipcMain.handle(
 
 // Return free system memory in bytes
 ipcMain.handle("system:free-memory", () => os.freemem());
+
+// ── Regex Pattern Library ──
+
+interface RegexPattern {
+  id: string;
+  title: string;
+  pattern: string;
+  description: string;
+  category?: string;
+  isBuiltin: boolean;
+}
+
+let cachedBuiltinPatterns: RegexPattern[] | null = null;
+
+function getUserPatternsPath(): string {
+  return path.join(app.getPath("userData"), "user-regex-patterns.json");
+}
+
+function readUserPatterns(): RegexPattern[] {
+  try {
+    const data = fs.readFileSync(getUserPatternsPath(), "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+}
+
+function writeUserPatterns(patterns: RegexPattern[]): void {
+  fs.writeFileSync(getUserPatternsPath(), JSON.stringify(patterns, null, 2), "utf-8");
+}
+
+function fetchGitHubPatterns(): Promise<RegexPattern[]> {
+  return new Promise((resolve, reject) => {
+    const url = "https://raw.githubusercontent.com/aj4abinjacob/chikku_data_combiner_v2/master/app/regex-patterns.json";
+    const req = https.get(url, { timeout: 5000 }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        res.resume();
+        return;
+      }
+      let data = "";
+      res.on("data", (chunk: string) => { data += chunk; });
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("Timeout")); });
+  });
+}
+
+function loadBundledPatterns(): RegexPattern[] {
+  // Try bundled copy in dist/ first, then source in app/
+  const candidates = [
+    path.join(__dirname, "regex-patterns.json"),
+    path.join(__dirname, "..", "app", "regex-patterns.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      const data = fs.readFileSync(p, "utf-8");
+      return JSON.parse(data);
+    } catch { /* try next */ }
+  }
+  return [];
+}
+
+// Get all patterns: fetch from GitHub (with fallback to bundled), merge with user patterns
+ipcMain.handle("patterns:get-all", async () => {
+  if (!cachedBuiltinPatterns) {
+    try {
+      cachedBuiltinPatterns = await fetchGitHubPatterns();
+      log.info("Loaded regex patterns from GitHub");
+    } catch (err) {
+      log.warn("Failed to fetch patterns from GitHub, using bundled:", (err as Error).message);
+      cachedBuiltinPatterns = loadBundledPatterns();
+    }
+  }
+  const userPatterns = readUserPatterns();
+  return [...cachedBuiltinPatterns, ...userPatterns];
+});
+
+// Save a user pattern (add or update)
+ipcMain.handle("patterns:save-user", async (_event, pattern: RegexPattern) => {
+  const patterns = readUserPatterns();
+  const idx = patterns.findIndex((p) => p.id === pattern.id);
+  if (idx >= 0) {
+    patterns[idx] = { ...pattern, isBuiltin: false };
+  } else {
+    patterns.push({ ...pattern, isBuiltin: false });
+  }
+  writeUserPatterns(patterns);
+  return true;
+});
+
+// Delete a user pattern
+ipcMain.handle("patterns:delete-user", async (_event, patternId: string) => {
+  const patterns = readUserPatterns();
+  writeUserPatterns(patterns.filter((p) => p.id !== patternId));
+  return true;
+});
+
+// Export user patterns to file
+ipcMain.handle("patterns:export", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  const result = await dialog.showSaveDialog(win, {
+    filters: [{ name: "JSON Files", extensions: ["json"] }],
+    defaultPath: "regex-patterns.json",
+  });
+  if (result.canceled || !result.filePath) return false;
+  const patterns = readUserPatterns();
+  fs.writeFileSync(result.filePath, JSON.stringify(patterns, null, 2), "utf-8");
+  return true;
+});
+
+// Import user patterns from file
+ipcMain.handle("patterns:import", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return { imported: 0 };
+  const result = await dialog.showOpenDialog(win, {
+    filters: [{ name: "JSON Files", extensions: ["json"] }],
+    properties: ["openFile"],
+  });
+  if (result.canceled || result.filePaths.length === 0) return { imported: 0 };
+  try {
+    const data = fs.readFileSync(result.filePaths[0], "utf-8");
+    const incoming: RegexPattern[] = JSON.parse(data);
+    if (!Array.isArray(incoming)) throw new Error("Invalid format");
+    const existing = readUserPatterns();
+    const existingIds = new Set(existing.map((p) => p.id));
+    let imported = 0;
+    for (const p of incoming) {
+      if (p.id && p.title && p.pattern && !existingIds.has(p.id)) {
+        existing.push({ ...p, isBuiltin: false });
+        existingIds.add(p.id);
+        imported++;
+      }
+    }
+    writeUserPatterns(existing);
+    return { imported };
+  } catch (err) {
+    return { error: (err as Error).message, imported: 0 };
+  }
+});
 
 // ── "Open With" support ──
 

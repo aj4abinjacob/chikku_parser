@@ -1,0 +1,146 @@
+[
+  {
+    "id": "builtin-all-numbers",
+    "title": "All Numbers",
+    "pattern": "([0-9]+\\.?[0-9]*)",
+    "description": "Extracts all numbers including decimals (e.g. 42, 3.14)",
+    "category": "Numbers",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-integers-only",
+    "title": "Integers Only",
+    "pattern": "([0-9]+)",
+    "description": "Extracts whole numbers only, no decimals",
+    "category": "Numbers",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-currency-amount",
+    "title": "Currency Amount",
+    "pattern": "[$£€¥]?\\s?([0-9]{1,3}(?:[,.]?[0-9]{3})*(?:\\.[0-9]{2})?)",
+    "description": "Extracts currency amounts like $1,234.56 or €99.99",
+    "category": "Numbers",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-percentage",
+    "title": "Percentage",
+    "pattern": "([0-9]+\\.?[0-9]*)\\s?%",
+    "description": "Extracts percentage values like 45% or 99.9%",
+    "category": "Numbers",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-email",
+    "title": "Email Address",
+    "pattern": "([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})",
+    "description": "Extracts email addresses like user@example.com",
+    "category": "Contact",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-us-phone",
+    "title": "US Phone Number",
+    "pattern": "(\\+?1?[\\s.-]?\\(?[0-9]{3}\\)?[\\s.-]?[0-9]{3}[\\s.-]?[0-9]{4})",
+    "description": "Extracts US phone numbers like (555) 123-4567 or 555.123.4567",
+    "category": "Contact",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-us-zip",
+    "title": "US Zip Code",
+    "pattern": "([0-9]{5}(?:-[0-9]{4})?)",
+    "description": "Extracts US zip codes like 12345 or 12345-6789",
+    "category": "Contact",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-url",
+    "title": "URL",
+    "pattern": "(https?://[^\\s<>\"']+)",
+    "description": "Extracts URLs starting with http:// or https://",
+    "category": "Web",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-domain",
+    "title": "Domain Name",
+    "pattern": "([a-zA-Z0-9](?:[a-zA-Z0-9\\-]*[a-zA-Z0-9])?\\.(?:[a-zA-Z]{2,}))",
+    "description": "Extracts domain names like example.com",
+    "category": "Web",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-ipv4",
+    "title": "IPv4 Address",
+    "pattern": "([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})",
+    "description": "Extracts IPv4 addresses like 192.168.1.1",
+    "category": "Web",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-iso-date",
+    "title": "ISO Date",
+    "pattern": "([0-9]{4}-[0-9]{2}-[0-9]{2})",
+    "description": "Extracts ISO dates like 2024-01-31",
+    "category": "Date/Time",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-date-slash",
+    "title": "Date (slash)",
+    "pattern": "([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})",
+    "description": "Extracts slash-separated dates like 01/31/2024 or 1/3/24",
+    "category": "Date/Time",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-time-hms",
+    "title": "Time (HH:MM:SS)",
+    "pattern": "([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)",
+    "description": "Extracts time values like 14:30 or 14:30:59",
+    "category": "Date/Time",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-hex-color",
+    "title": "Hex Color",
+    "pattern": "(#[0-9a-fA-F]{3,8})",
+    "description": "Extracts hex color codes like #FF5733 or #abc",
+    "category": "Text",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-quoted-string",
+    "title": "Quoted String",
+    "pattern": "[\"']([^\"']*)[\"']",
+    "description": "Extracts text between single or double quotes",
+    "category": "Text",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-in-parentheses",
+    "title": "Text in Parentheses",
+    "pattern": "\\(([^)]+)\\)",
+    "description": "Extracts text between parentheses",
+    "category": "Text",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-first-word",
+    "title": "First Word",
+    "pattern": "^\\s*([^\\s]+)",
+    "description": "Extracts the first word from each value",
+    "category": "Text",
+    "isBuiltin": true
+  },
+  {
+    "id": "builtin-last-word",
+    "title": "Last Word",
+    "pattern": "([^\\s]+)\\s*$",
+    "description": "Extracts the last word from each value",
+    "category": "Text",
+    "isBuiltin": true
+  }
+]

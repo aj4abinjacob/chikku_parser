@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Button,
   Checkbox,
@@ -13,6 +13,8 @@ import {
   Radio,
 } from "@blueprintjs/core";
 import { ColumnInfo } from "../types";
+import { RegexPatternPicker } from "./RegexPatternPicker";
+import { RegexPatternManagerDialog } from "./RegexPatternManagerDialog";
 
 type OpType =
   | "regex_extract"
@@ -98,6 +100,12 @@ export function DataOperationsDialog({
   const [previews, setPreviews] = useState<Array<{ original: string; result: string }>>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [dedupPreview, setDedupPreview] = useState<{ before: number; after: number } | null>(null);
+  const [patternManagerOpen, setPatternManagerOpen] = useState(false);
+  const [patternRefreshKey, setPatternRefreshKey] = useState(0);
+
+  const handlePatternsChanged = useCallback(() => {
+    setPatternRefreshKey((k) => k + 1);
+  }, []);
 
   // Build a lookup map from schema for column types
   const colTypeMap = React.useMemo(() => {
@@ -486,6 +494,7 @@ export function DataOperationsDialog({
   };
 
   return (
+    <>
     <Dialog
       isOpen={isOpen}
       onClose={handleClose}
@@ -1009,6 +1018,13 @@ export function DataOperationsDialog({
                   value={param1}
                   onChange={(e) => setParam1(e.target.value)}
                   placeholder="([0-9]+\.?[0-9]*)"
+                  rightElement={
+                    <RegexPatternPicker
+                      key={patternRefreshKey}
+                      onSelect={(p) => setParam1(p)}
+                      onOpenManager={() => setPatternManagerOpen(true)}
+                    />
+                  }
                 />
               </FormGroup>
               <FormGroup label="Capture Group Index" helperText="Which group to extract (default: 1)">
@@ -1028,6 +1044,13 @@ export function DataOperationsDialog({
                   value={param1}
                   onChange={(e) => setParam1(e.target.value)}
                   placeholder="[^0-9]"
+                  rightElement={
+                    <RegexPatternPicker
+                      key={patternRefreshKey}
+                      onSelect={(p) => setParam1(p)}
+                      onOpenManager={() => setPatternManagerOpen(true)}
+                    />
+                  }
                 />
               </FormGroup>
               <FormGroup label="Replacement">
@@ -1132,5 +1155,11 @@ export function DataOperationsDialog({
         }
       />
     </Dialog>
+    <RegexPatternManagerDialog
+      isOpen={patternManagerOpen}
+      onClose={() => setPatternManagerOpen(false)}
+      onPatternsChanged={handlePatternsChanged}
+    />
+    </>
   );
 }

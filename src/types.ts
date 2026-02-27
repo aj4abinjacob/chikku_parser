@@ -113,5 +113,14 @@ export interface RowOpStep {
   timestamp: number;
 }
 
+export interface RegexPattern {
+  id: string;
+  title: string;
+  pattern: string;
+  description: string;
+  category?: string;
+  isBuiltin: boolean;
+}
+
 export const EXCEL_MAX_ROWS = 1_048_576;
 export const EXCEL_MAX_COLS = 16_384;
