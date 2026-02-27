@@ -9,6 +9,11 @@ import * as XLSX from "xlsx";
 // Per-window DuckDB instances, keyed by webContents.id
 const dbMap = new Map<number, Database>();
 
+// ── "Open With" file queue ──
+// Files passed via OS "Open With" or command-line args before the window is ready
+const pendingOpenFiles: string[] = [];
+const SUPPORTED_EXTENSIONS = new Set(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "xlsx", "xls"]);
+
 // ── Promisified DuckDB helpers ──
 
 function runPromise(db: Database, sql: string): Promise<void> {
@@ -80,6 +85,11 @@ function createWindow(): void {
   log.info(`DuckDB initialized for window ${win.webContents.id}`);
 
   win.loadFile(path.join(__dirname, "index.html"));
+
+  // Once the renderer is ready, flush any files queued from "Open With" or CLI args
+  win.webContents.on("did-finish-load", () => {
+    flushPendingFiles(win);
+  });
 
   if (process.env.NODE_ENV === "development") {
     win.webContents.openDevTools();
@@ -415,7 +425,72 @@ ipcMain.handle(
 // Return free system memory in bytes
 ipcMain.handle("system:free-memory", () => os.freemem());
 
+// ── "Open With" support ──
+
+// macOS: fires when files are opened via "Open With", drag-to-dock, or file associations.
+// This event can fire before `ready`, so we queue files and flush once the window is ready.
+app.on("open-file", (event, filePath) => {
+  event.preventDefault();
+  const ext = path.extname(filePath).toLowerCase().replace(".", "");
+  if (!SUPPORTED_EXTENSIONS.has(ext)) return;
+
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && win.webContents && !win.webContents.isLoading()) {
+    // App is ready — send directly as "open" (replace current tables)
+    win.webContents.send("open-files", [filePath]);
+  } else {
+    // App not ready yet — queue for later
+    pendingOpenFiles.push(filePath);
+  }
+});
+
+/** Flush any queued files (from open-file events or CLI args) to the window */
+function flushPendingFiles(win: BrowserWindow): void {
+  if (pendingOpenFiles.length === 0) return;
+  const files = [...pendingOpenFiles];
+  pendingOpenFiles.length = 0;
+  win.webContents.send("open-files", files);
+}
+
+/** Extract supported file paths from process.argv (skipping Electron/app paths and flags) */
+function getFilesFromArgv(): string[] {
+  // In packaged app, argv[0] is the app itself. In dev, argv[0] is electron, argv[1] is the script.
+  // File arguments come after the app/script paths.
+  const args = app.isPackaged ? process.argv.slice(1) : process.argv.slice(2);
+  return args.filter((arg) => {
+    if (arg.startsWith("-")) return false;
+    const ext = path.extname(arg).toLowerCase().replace(".", "");
+    return SUPPORTED_EXTENSIONS.has(ext) && fs.existsSync(arg);
+  }).map((arg) => path.resolve(arg));
+}
+
 // ── App Lifecycle ──
+
+// Single-instance lock: when the user opens a second file while the app is already running,
+// the OS launches a new instance. We catch that here and forward the files to the existing window.
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    // argv contains the new instance's command-line args — extract file paths
+    const args = app.isPackaged ? argv.slice(1) : argv.slice(2);
+    const files = args.filter((arg) => {
+      if (arg.startsWith("-")) return false;
+      const ext = path.extname(arg).toLowerCase().replace(".", "");
+      return SUPPORTED_EXTENSIONS.has(ext) && fs.existsSync(arg);
+    }).map((arg) => path.resolve(arg));
+
+    if (files.length > 0) {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+        win.webContents.send("open-files", files);
+      }
+    }
+  });
+}
 
 app.whenReady().then(() => {
   // Set dock icon on macOS (needed for dev mode; production uses .icns from app bundle)
@@ -425,6 +500,10 @@ app.whenReady().then(() => {
     );
     app.dock.setIcon(dockIcon);
   }
+
+  // Collect file paths from command-line arguments (Windows/Linux "Open With")
+  const cliFiles = getFilesFromArgv();
+  pendingOpenFiles.push(...cliFiles);
 
   buildMenu();
   createWindow();
