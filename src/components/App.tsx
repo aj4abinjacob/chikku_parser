@@ -70,6 +70,7 @@ interface PendingExcelImport {
   sheets: SheetInfo[];
   replace: boolean;
   otherFiles: LoadedTable[];
+  remainingFiles: string[];
 }
 
 interface PendingRetry {
@@ -78,6 +79,7 @@ interface PendingRetry {
   errorMessage: string;
   replace: boolean;
   otherFiles: LoadedTable[];
+  remainingFiles: string[];
 }
 
 export function App(): React.ReactElement {
@@ -148,27 +150,31 @@ export function App(): React.ReactElement {
   );
 
   // Load files into DuckDB (handles all formats)
+  // accumulatedTables: when continuing after a dialog, pass the already-loaded tables
   const loadFiles = useCallback(
-    async (filePaths: string[], replace: boolean) => {
-      const newTables: LoadedTable[] = replace ? [] : [...tablesRef.current];
+    async (filePaths: string[], replace: boolean, accumulatedTables?: LoadedTable[]) => {
+      const newTables: LoadedTable[] = accumulatedTables ?? (replace ? [] : [...tablesRef.current]);
 
-      for (const fp of filePaths) {
+      for (let i = 0; i < filePaths.length; i++) {
+        const fp = filePaths[i];
         const ext = getFileExtension(fp);
+        const remaining = filePaths.slice(i + 1);
 
         if (ext === "xlsx" || ext === "xls") {
           // Excel: check for multiple sheets
           try {
             const sheets = await window.api.getExcelSheets(fp);
             if (sheets.length > 1) {
-              // Show sheet picker dialog
+              // Show sheet picker dialog — remaining files will be continued after
               setPendingExcelImport({
                 filePath: fp,
                 fileName: fp.split(/[/\\]/).pop() || fp,
                 sheets,
                 replace,
                 otherFiles: newTables,
+                remainingFiles: remaining,
               });
-              return; // Wait for dialog result
+              return; // Wait for dialog result, then continue with remaining
             }
             // Single sheet — import directly
             const tableName = makeTableName(fp);
@@ -190,8 +196,9 @@ export function App(): React.ReactElement {
               errorMessage: result.error,
               replace,
               otherFiles: newTables,
+              remainingFiles: remaining,
             });
-            return; // Wait for retry dialog
+            return; // Wait for retry dialog, then continue with remaining
           }
           if (result && !("error" in result)) {
             newTables.push(result);
@@ -222,7 +229,7 @@ export function App(): React.ReactElement {
   const handleExcelSheetImport = useCallback(
     async (selectedSheets: string[]) => {
       if (!pendingExcelImport) return;
-      const { filePath, otherFiles, replace } = pendingExcelImport;
+      const { filePath, otherFiles, replace, remainingFiles } = pendingExcelImport;
       const newTables = [...otherFiles];
       const baseName = makeTableName(filePath);
 
@@ -234,23 +241,29 @@ export function App(): React.ReactElement {
         }
       }
 
-      setTables(newTables);
-      if (newTables.length > 0) {
-        setActiveTable(newTables[replace ? 0 : newTables.length - selectedSheets.length].tableName);
-        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
-        setResetKey((k) => k + 1);
-        setFilterPanelOpen(false);
-      }
       setPendingExcelImport(null);
+
+      // Continue loading remaining files, or finalize
+      if (remainingFiles.length > 0) {
+        await loadFiles(remainingFiles, false, newTables);
+      } else {
+        setTables(newTables);
+        if (newTables.length > 0) {
+          setActiveTable(newTables[replace ? 0 : newTables.length - selectedSheets.length].tableName);
+          setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
+          setResetKey((k) => k + 1);
+          setFilterPanelOpen(false);
+        }
+      }
     },
-    [pendingExcelImport, loadSingleFile]
+    [pendingExcelImport, loadSingleFile, loadFiles]
   );
 
   // Handle CSV retry
   const handleRetryImport = useCallback(
     async (options: { csvDelimiter?: string; csvIgnoreErrors?: boolean }) => {
       if (!pendingRetry) return;
-      const { filePath, tableName, otherFiles } = pendingRetry;
+      const { filePath, tableName, otherFiles, remainingFiles } = pendingRetry;
       const newTables = [...otherFiles];
 
       const result = await loadSingleFile(filePath, tableName, options);
@@ -262,16 +275,22 @@ export function App(): React.ReactElement {
         return;
       }
 
-      setTables(newTables);
-      if (newTables.length > 0) {
-        setActiveTable(newTables[newTables.length - 1].tableName);
-        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
-        setResetKey((k) => k + 1);
-        setFilterPanelOpen(false);
-      }
       setPendingRetry(null);
+
+      // Continue loading remaining files, or finalize
+      if (remainingFiles.length > 0) {
+        await loadFiles(remainingFiles, false, newTables);
+      } else {
+        setTables(newTables);
+        if (newTables.length > 0) {
+          setActiveTable(newTables[newTables.length - 1].tableName);
+          setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
+          setResetKey((k) => k + 1);
+          setFilterPanelOpen(false);
+        }
+      }
     },
-    [pendingRetry, loadSingleFile]
+    [pendingRetry, loadSingleFile, loadFiles]
   );
 
   // Register IPC listeners once on mount
@@ -1170,7 +1189,20 @@ export function App(): React.ReactElement {
           isOpen={true}
           fileName={pendingExcelImport.fileName}
           sheets={pendingExcelImport.sheets}
-          onClose={() => setPendingExcelImport(null)}
+          onClose={() => {
+            const { otherFiles, remainingFiles } = pendingExcelImport;
+            setPendingExcelImport(null);
+            // Skip this Excel file, continue with remaining files or finalize already-loaded tables
+            if (remainingFiles.length > 0) {
+              loadFiles(remainingFiles, false, otherFiles);
+            } else if (otherFiles.length > 0) {
+              setTables(otherFiles);
+              setActiveTable(otherFiles[0].tableName);
+              setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
+              setResetKey((k) => k + 1);
+              setFilterPanelOpen(false);
+            }
+          }}
           onImport={handleExcelSheetImport}
         />
       )}
@@ -1179,7 +1211,20 @@ export function App(): React.ReactElement {
           isOpen={true}
           filePath={pendingRetry.filePath}
           errorMessage={pendingRetry.errorMessage}
-          onClose={() => setPendingRetry(null)}
+          onClose={() => {
+            const { otherFiles, remainingFiles } = pendingRetry;
+            setPendingRetry(null);
+            // Skip this file, continue with remaining files or finalize already-loaded tables
+            if (remainingFiles.length > 0) {
+              loadFiles(remainingFiles, false, otherFiles);
+            } else if (otherFiles.length > 0) {
+              setTables(otherFiles);
+              setActiveTable(otherFiles[0].tableName);
+              setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
+              setResetKey((k) => k + 1);
+              setFilterPanelOpen(false);
+            }
+          }}
           onRetry={handleRetryImport}
         />
       )}
