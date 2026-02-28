@@ -113,6 +113,7 @@ export function DataGrid({
   // ── Column resize state ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const isDragging = useRef(false);
+  const justFinishedResize = useRef(false);
   const dragColRef = useRef<string | null>(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
@@ -210,6 +211,8 @@ export function DataGrid({
     const onMouseUp = () => {
       if (!isDragging.current) return;
       isDragging.current = false;
+      justFinishedResize.current = true;
+      requestAnimationFrame(() => { justFinishedResize.current = false; });
       dragColRef.current = null;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
@@ -498,7 +501,7 @@ export function DataGrid({
                     .join(" ")}
                   style={{ width: columnWidths[col] ?? 150 }}
                   draggable={!pivotMode && !!onReorderColumns}
-                  onClick={(e) => onSort(col, e.shiftKey)}
+                  onClick={(e) => { if (!justFinishedResize.current) onSort(col, e.shiftKey); }}
                   onDragStart={(e) => handleHeaderDragStart(e, col)}
                   onDragOver={(e) => handleHeaderDragOver(e, col)}
                   onDragLeave={handleHeaderDragLeave}
