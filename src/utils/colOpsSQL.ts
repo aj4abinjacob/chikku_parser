@@ -9,6 +9,20 @@ function escapeRegexMeta(str: string): string {
 }
 
 /**
+ * Build a SQL expression that extracts all matches of a regex group and
+ * joins them with a separator using regexp_extract_all + array_to_string.
+ */
+export function buildAllMatchesExtractExpr(
+  colExpr: string,
+  pattern: string,
+  groupIdx: string,
+  separator: string
+): string {
+  const sep = separator.replace(/'/g, "''");
+  return `array_to_string(regexp_extract_all(${colExpr}, '${pattern}', ${groupIdx || "1"}), '${sep}')`;
+}
+
+/**
  * Build an UPDATE SQL for a column operation, optionally scoped by filters.
  */
 export function buildColOpUpdateSQL(
@@ -38,9 +52,18 @@ export function buildColOpUpdateSQL(
       break;
     }
     case "regex_extract": {
-      const pattern = params.pattern?.replace(/'/g, "''") ?? "";
+      const pattern = (params.pattern ?? "").replace(/'/g, "''");
       const groupIdx = params.groupIndex ?? "1";
-      setExpr = `regexp_extract(CAST(${col} AS VARCHAR), '${pattern}', ${groupIdx})`;
+      if (params.allMatches === "true") {
+        setExpr = buildAllMatchesExtractExpr(
+          `CAST(${col} AS VARCHAR)`,
+          pattern,
+          groupIdx,
+          params.separator ?? ""
+        );
+      } else {
+        setExpr = `regexp_extract(CAST(${col} AS VARCHAR), '${pattern}', ${groupIdx})`;
+      }
       break;
     }
     case "extract_numbers": {
@@ -97,7 +120,9 @@ export function buildStepDescription(
     case "find_replace":
       return `Replace "${params.pattern ?? ""}" with "${params.replacement ?? ""}" in "${column}"`;
     case "regex_extract":
-      return `Regex extract from "${column}"`;
+      return params.allMatches === "true"
+        ? `Regex extract all matches from "${column}"${params.separator ? ` (sep: "${params.separator}")` : ""}`
+        : `Regex extract from "${column}"`;
     case "extract_numbers":
       return `Extract numbers from "${column}"`;
     case "trim":

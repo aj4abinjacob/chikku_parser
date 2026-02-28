@@ -219,6 +219,22 @@ export function ColumnOpsPanel({
               placeholder="Group"
               type="number"
             />
+            <Checkbox
+              checked={params.allMatches === "true"}
+              onChange={(e) => updateParam("allMatches", (e.target as HTMLInputElement).checked ? "true" : "false")}
+              label="All"
+              className="colops-inline-checkbox"
+              title="Extract all matches, not just the first"
+            />
+            {params.allMatches === "true" && (
+              <InputGroup
+                className="colops-group-input"
+                value={params.separator ?? ""}
+                onChange={(e) => updateParam("separator", e.target.value)}
+                placeholder="Sep"
+                title="Separator between matches"
+              />
+            )}
           </>
         );
       case "prefix_suffix":

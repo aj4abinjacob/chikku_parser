@@ -13,6 +13,7 @@ import {
   Radio,
 } from "@blueprintjs/core";
 import { ColumnInfo } from "../types";
+import { buildAllMatchesExtractExpr } from "../utils/colOpsSQL";
 import { RegexPatternPicker } from "./RegexPatternPicker";
 import { RegexPatternManagerDialog } from "./RegexPatternManagerDialog";
 
@@ -100,6 +101,8 @@ export function DataOperationsDialog({
   const [previews, setPreviews] = useState<Array<{ original: string; result: string }>>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [dedupPreview, setDedupPreview] = useState<{ before: number; after: number } | null>(null);
+  const [extractAllMatches, setExtractAllMatches] = useState(false);
+  const [extractSeparator, setExtractSeparator] = useState("");
   const [patternManagerOpen, setPatternManagerOpen] = useState(false);
   const [patternRefreshKey, setPatternRefreshKey] = useState(0);
 
@@ -124,6 +127,14 @@ export function DataOperationsDialog({
       case "regex_extract": {
         const pattern = p1 || "(.+)";
         const groupIdx = p2 || "1";
+        if (extractAllMatches) {
+          return buildAllMatchesExtractExpr(
+            ref,
+            pattern.replace(/'/g, "''"),
+            groupIdx,
+            extractSeparator
+          );
+        }
         return `regexp_extract(${ref}, '${pattern.replace(/'/g, "''")}', ${groupIdx})`;
       }
       case "trim":
@@ -323,7 +334,7 @@ export function DataOperationsDialog({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [isOpen, activeTable, sourceCol, opType, param1, param2, combineSourceCols, dedupColumns, caseConditions, caseDefault]);
+  }, [isOpen, activeTable, sourceCol, opType, param1, param2, extractAllMatches, extractSeparator, combineSourceCols, dedupColumns, caseConditions, caseDefault]);
 
   const resetForm = () => {
     setSourceCol("");
@@ -343,6 +354,8 @@ export function DataOperationsDialog({
     setSampleMode("rows");
     setCaseConditions([{ column: "", operator: "=", value: "", result: "" }]);
     setCaseDefault("");
+    setExtractAllMatches(false);
+    setExtractSeparator("");
     setOpType("regex_extract");
     setPreviews([]);
     setPreviewError(null);
@@ -1034,6 +1047,21 @@ export function DataOperationsDialog({
                   placeholder="1"
                 />
               </FormGroup>
+              <Checkbox
+                checked={extractAllMatches}
+                onChange={(e) => setExtractAllMatches((e.target as HTMLInputElement).checked)}
+                label="Extract all matches (not just the first)"
+                style={{ marginBottom: 10 }}
+              />
+              {extractAllMatches && (
+                <FormGroup label="Separator" helperText="Join matches with this separator (leave empty for no separator)">
+                  <InputGroup
+                    value={extractSeparator}
+                    onChange={(e) => setExtractSeparator(e.target.value)}
+                    placeholder="e.g. - or space"
+                  />
+                </FormGroup>
+              )}
             </>
           )}
 

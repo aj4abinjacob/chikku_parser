@@ -206,7 +206,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Extracted from Sidebar; self-contained dialog for column/row transforms
 - Props: `isOpen`, `onClose`, `activeTable`, `schema`, `onApply(sql)`, `onSampleTable(n, isPercent)`
 - 16 operation types:
-  - `regex_extract` — regexp_extract() with user-provided pattern + capture group index; casts source to VARCHAR first so it works on any data type
+  - `regex_extract` — regexp_extract() with user-provided pattern + capture group index; casts source to VARCHAR first so it works on any data type; supports "All matches" mode that uses regexp_extract_all() + array_to_string() to extract all occurrences and join them with an optional separator
   - `trim` — TRIM()
   - `upper` / `lower` — UPPER() / LOWER()
   - `replace_regex` — regexp_replace() with pattern + replacement params
@@ -456,6 +456,7 @@ EXCEL_MAX_COLS    // 16,384
 |----------|---------|
 | `buildColOpUpdateSQL(tableName, column, opType, params, filters)` | Builds `UPDATE ... SET ... WHERE` for in-place column operations scoped by active filters |
 | `buildStepDescription(opType, column, params)` | Human-readable label for step history display |
+| `buildAllMatchesExtractExpr(colExpr, pattern, groupIdx, separator)` | Builds regexp_extract_all + array_to_string expression for extracting all matches |
 
 ## Row Ops SQL (`src/utils/rowOpsSQL.ts`)
 
