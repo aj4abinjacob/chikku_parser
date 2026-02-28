@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button } from "@blueprintjs/core";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn, PivotAggFunction, PivotGroupColumn } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
 import { StatusBar } from "./StatusBar";
+import { PivotToolbar } from "./PivotToolbar";
 import { CombineDialog } from "./CombineDialog";
 import { ExcelSheetPickerDialog } from "./ExcelSheetPickerDialog";
 import { ImportRetryDialog } from "./ImportRetryDialog";
@@ -13,6 +14,7 @@ import { buildCombineQuery } from "../utils/sqlBuilder";
 import { buildColOpUpdateSQL, buildStepDescription } from "../utils/colOpsSQL";
 import { buildRowOpSQL, buildRowOpStepDescription } from "../utils/rowOpsSQL";
 import { useChunkCache } from "../hooks/useChunkCache";
+import { usePivotCache } from "../hooks/usePivotCache";
 
 function makeTableName(filePath: string): string {
   const name = filePath.split(/[/\\]/).pop() || "table";
@@ -107,6 +109,7 @@ export function App(): React.ReactElement {
     columnOrder: [],
     filters: { logic: "AND", children: [] },
     sortColumns: [],
+    pivotConfig: null,
   });
 
   // Use refs so IPC callbacks always see latest state
@@ -115,12 +118,37 @@ export function App(): React.ReactElement {
   const activeTableRef = useRef(activeTable);
   activeTableRef.current = activeTable;
 
-  // Chunk cache for lazy-loaded virtual scrolling
+  // Determine if pivot mode is active
+  const pivotActive = !!viewState.pivotConfig && viewState.pivotConfig.groupColumns.length > 0;
+
+  // Numeric columns set for pivot aggregate display
+  const numericColumns = useMemo(() => {
+    const NUMERIC_RE = /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|HUGEINT|FLOAT|REAL|DOUBLE|DECIMAL|NUMERIC)/i;
+    return new Set(schema.filter(c => NUMERIC_RE.test(c.column_type)).map(c => c.column_name));
+  }, [schema]);
+
+  // Chunk cache for lazy-loaded virtual scrolling (flat mode)
   const { totalRows, getRow, ensureRange } = useChunkCache({
     tableName: activeTable,
     viewState,
-    enabled: viewState.visibleColumns.length > 0,
+    enabled: viewState.visibleColumns.length > 0 && !pivotActive,
     dataVersion,
+  });
+
+  // Pivot cache (pivot mode)
+  const {
+    flatRows: pivotFlatRows,
+    grandTotals: pivotGrandTotals,
+    loading: pivotLoading,
+    toggleExpand: pivotToggleExpand,
+    expandAll: pivotExpandAll,
+    collapseAll: pivotCollapseAll,
+    ensureRange: pivotEnsureRange,
+  } = usePivotCache({
+    tableName: activeTable,
+    viewState,
+    schema,
+    enabled: viewState.visibleColumns.length > 0 && pivotActive,
   });
 
   // Load a single file into DuckDB (handles all formats)
@@ -514,6 +542,96 @@ export function App(): React.ReactElement {
   // Clear all sorts
   const handleClearSort = useCallback(() => {
     setViewState((prev) => ({ ...prev, sortColumns: [] }));
+    setResetKey((k) => k + 1);
+  }, []);
+
+  // ── Pivot View handlers ──
+
+  const handleTogglePivotMode = useCallback(() => {
+    setViewState((prev) => ({
+      ...prev,
+      pivotConfig: prev.pivotConfig
+        ? null
+        : { groupColumns: [], showGrandTotal: true, defaultAggFunction: "SUM" },
+    }));
+    setResetKey((k) => k + 1);
+  }, []);
+
+  const handlePivotGroup = useCallback((column: string, addLevel: boolean) => {
+    setViewState((prev) => {
+      const config = prev.pivotConfig;
+      if (!config) return prev;
+
+      const existing = config.groupColumns.findIndex((gc) => gc.column === column);
+
+      if (addLevel) {
+        if (existing >= 0) {
+          const current = config.groupColumns[existing];
+          if (current.direction === "ASC") {
+            const next = [...config.groupColumns];
+            next[existing] = { column, direction: "DESC" };
+            return { ...prev, pivotConfig: { ...config, groupColumns: next } };
+          } else {
+            return {
+              ...prev,
+              pivotConfig: {
+                ...config,
+                groupColumns: config.groupColumns.filter((_, i) => i !== existing),
+              },
+            };
+          }
+        } else {
+          return {
+            ...prev,
+            pivotConfig: {
+              ...config,
+              groupColumns: [...config.groupColumns, { column, direction: "ASC" }],
+            },
+          };
+        }
+      } else {
+        if (config.groupColumns.length === 1 && config.groupColumns[0].column === column) {
+          if (config.groupColumns[0].direction === "ASC") {
+            return {
+              ...prev,
+              pivotConfig: { ...config, groupColumns: [{ column, direction: "DESC" }] },
+            };
+          } else {
+            return { ...prev, pivotConfig: { ...config, groupColumns: [] } };
+          }
+        }
+        return {
+          ...prev,
+          pivotConfig: { ...config, groupColumns: [{ column, direction: "ASC" }] },
+        };
+      }
+    });
+    setResetKey((k) => k + 1);
+  }, []);
+
+  const handleClearPivotGroups = useCallback(() => {
+    setViewState((prev) => {
+      if (!prev.pivotConfig) return prev;
+      return { ...prev, pivotConfig: { ...prev.pivotConfig, groupColumns: [] } };
+    });
+    setResetKey((k) => k + 1);
+  }, []);
+
+  const handleToggleGrandTotal = useCallback(() => {
+    setViewState((prev) => {
+      if (!prev.pivotConfig) return prev;
+      return {
+        ...prev,
+        pivotConfig: { ...prev.pivotConfig, showGrandTotal: !prev.pivotConfig.showGrandTotal },
+      };
+    });
+  }, []);
+
+  const handleDefaultAggChange = useCallback((fn: PivotAggFunction) => {
+    setViewState((prev) => {
+      if (!prev.pivotConfig) return prev;
+      return { ...prev, pivotConfig: { ...prev.pivotConfig, defaultAggFunction: fn } };
+    });
     setResetKey((k) => k + 1);
   }, []);
 
@@ -1069,6 +1187,10 @@ export function App(): React.ReactElement {
             sortColumns={viewState.sortColumns}
             onSort={handleSort}
             onClearSort={handleClearSort}
+            pivotConfig={viewState.pivotConfig}
+            onTogglePivotMode={handleTogglePivotMode}
+            onPivotGroup={handlePivotGroup}
+            onClearPivotGroups={handleClearPivotGroups}
             onSelectTable={(name) => {
               setActiveTable(name);
               setViewState((prev) => ({
@@ -1077,6 +1199,7 @@ export function App(): React.ReactElement {
                 visibleColumns: [],
                 columnOrder: [],
                 sortColumns: [],
+                pivotConfig: null,
               }));
               setResetKey((k) => k + 1);
             }}
@@ -1112,15 +1235,32 @@ export function App(): React.ReactElement {
         <div className="data-area">
           {hasData ? (
             <>
+              {pivotActive && viewState.pivotConfig && (
+                <PivotToolbar
+                  pivotConfig={viewState.pivotConfig}
+                  onExpandAll={pivotExpandAll}
+                  onCollapseAll={pivotCollapseAll}
+                  onToggleGrandTotal={handleToggleGrandTotal}
+                  onDefaultAggChange={handleDefaultAggChange}
+                  onExitPivot={handleTogglePivotMode}
+                />
+              )}
               <DataGrid
-                totalRows={totalRows}
-                getRow={getRow}
-                ensureRange={ensureRange}
+                totalRows={pivotActive ? pivotFlatRows.length : totalRows}
+                getRow={pivotActive ? () => null : getRow}
+                ensureRange={pivotActive ? pivotEnsureRange : ensureRange}
                 columns={viewState.visibleColumns}
                 sortColumns={viewState.sortColumns}
-                onSort={handleSort}
-                onReorderColumns={reorderVisibleColumns}
+                onSort={pivotActive ? handlePivotGroup : handleSort}
+                onReorderColumns={pivotActive ? undefined : reorderVisibleColumns}
                 resetKey={resetKey}
+                pivotMode={pivotActive}
+                pivotFlatRows={pivotActive ? pivotFlatRows : undefined}
+                pivotGroupColumns={pivotActive ? viewState.pivotConfig?.groupColumns : undefined}
+                onToggleExpand={pivotActive ? pivotToggleExpand : undefined}
+                grandTotals={pivotActive ? pivotGrandTotals : undefined}
+                showGrandTotal={pivotActive ? viewState.pivotConfig?.showGrandTotal : undefined}
+                numericColumns={pivotActive ? numericColumns : undefined}
               />
               {filterPanelOpen && (
                 <FilterPanel
@@ -1159,7 +1299,7 @@ export function App(): React.ReactElement {
         </div>
       </div>
       <StatusBar
-        totalRows={totalRows}
+        totalRows={pivotActive ? (tables.find((t) => t.tableName === activeTable)?.rowCount ?? 0) : totalRows}
         unfilteredRows={
           hasActiveFilters(viewState.filters)
             ? tables.find((t) => t.tableName === activeTable)?.rowCount ?? null
@@ -1167,6 +1307,7 @@ export function App(): React.ReactElement {
         }
         activeTable={activeTable}
         tableCount={tables.length}
+        pivotConfig={viewState.pivotConfig}
       />
       <CombineDialog
         isOpen={combineDialogOpen}

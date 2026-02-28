@@ -1,4 +1,4 @@
-import { FilterCondition, FilterGroup, SortColumn, ViewState, isFilterGroup } from "../types";
+import { FilterCondition, FilterGroup, SortColumn, ViewState, isFilterGroup, PivotGroupColumn } from "../types";
 
 /**
  * Escape a SQL identifier by doubling any embedded double quotes.
@@ -223,5 +223,125 @@ export function buildCountQuery(
   if (whereClause) {
     sql += ` WHERE ${whereClause}`;
   }
+  return sql;
+}
+
+/**
+ * Build a WHERE clause fragment for parent path constraints in pivot queries.
+ * Generates: "col1" = 'val1' AND "col2" IS NULL ...
+ */
+function buildParentPathClause(parentPath: { column: string; value: any }[]): string {
+  if (parentPath.length === 0) return "";
+  return parentPath
+    .map((p) => {
+      if (p.value === null || p.value === undefined) {
+        return `${escapeIdent(p.column)} IS NULL`;
+      }
+      const val = String(p.value).replace(/'/g, "''");
+      return `CAST(${escapeIdent(p.column)} AS VARCHAR) = '${val}'`;
+    })
+    .join(" AND ");
+}
+
+/**
+ * Build a GROUP BY query for pivot view — fetches group values with aggregates.
+ */
+export function buildPivotGroupQuery(
+  tableName: string,
+  groupColumn: string,
+  parentPath: { column: string; value: any }[],
+  aggConfigs: { column: string; fn: string }[],
+  filters: FilterGroup,
+  direction: "ASC" | "DESC"
+): string {
+  const gcol = escapeIdent(groupColumn);
+  const selects = [`${gcol}`, `COUNT(*) AS __count`];
+
+  for (const agg of aggConfigs) {
+    const col = escapeIdent(agg.column);
+    const alias = `"${agg.column.replace(/"/g, '""')}:${agg.fn}"`;
+    if (agg.fn === "COUNT_DISTINCT") {
+      selects.push(`COUNT(DISTINCT ${col}) AS ${alias}`);
+    } else {
+      selects.push(`${agg.fn}(${col}) AS ${alias}`);
+    }
+  }
+
+  let sql = `SELECT ${selects.join(", ")} FROM ${escapeIdent(tableName)}`;
+
+  const whereParts: string[] = [];
+  const filterClause = buildFilterGroupClause(filters);
+  if (filterClause) whereParts.push(filterClause);
+  const parentClause = buildParentPathClause(parentPath);
+  if (parentClause) whereParts.push(parentClause);
+  if (whereParts.length > 0) sql += ` WHERE ${whereParts.join(" AND ")}`;
+
+  sql += ` GROUP BY ${gcol} ORDER BY ${gcol} ${direction}`;
+
+  return sql;
+}
+
+/**
+ * Build a grand total query for pivot view — overall aggregates.
+ */
+export function buildPivotGrandTotalQuery(
+  tableName: string,
+  aggConfigs: { column: string; fn: string }[],
+  filters: FilterGroup
+): string {
+  const selects = [`COUNT(*) AS __count`];
+
+  for (const agg of aggConfigs) {
+    const col = escapeIdent(agg.column);
+    const alias = `"${agg.column.replace(/"/g, '""')}:${agg.fn}"`;
+    if (agg.fn === "COUNT_DISTINCT") {
+      selects.push(`COUNT(DISTINCT ${col}) AS ${alias}`);
+    } else {
+      selects.push(`${agg.fn}(${col}) AS ${alias}`);
+    }
+  }
+
+  let sql = `SELECT ${selects.join(", ")} FROM ${escapeIdent(tableName)}`;
+
+  const filterClause = buildFilterGroupClause(filters);
+  if (filterClause) sql += ` WHERE ${filterClause}`;
+
+  return sql;
+}
+
+/**
+ * Build a data chunk query for pivot leaf rows (within an expanded group).
+ */
+export function buildPivotDataChunkQuery(
+  tableName: string,
+  visibleColumns: string[],
+  parentPath: { column: string; value: any }[],
+  filters: FilterGroup,
+  sortColumns: SortColumn[],
+  chunkSize: number,
+  chunkIndex: number
+): string {
+  const columns =
+    visibleColumns.length > 0
+      ? visibleColumns.map((c) => escapeIdent(c)).join(", ")
+      : "*";
+
+  let sql = `SELECT ${columns} FROM ${escapeIdent(tableName)}`;
+
+  const whereParts: string[] = [];
+  const filterClause = buildFilterGroupClause(filters);
+  if (filterClause) whereParts.push(filterClause);
+  const parentClause = buildParentPathClause(parentPath);
+  if (parentClause) whereParts.push(parentClause);
+  if (whereParts.length > 0) sql += ` WHERE ${whereParts.join(" AND ")}`;
+
+  if (sortColumns.length > 0) {
+    const orderParts = sortColumns.map(
+      (sc) => `${escapeIdent(sc.column)} ${sc.direction}`
+    );
+    sql += ` ORDER BY ${orderParts.join(", ")}`;
+  }
+
+  sql += ` LIMIT ${chunkSize} OFFSET ${chunkIndex * chunkSize}`;
   return sql;
 }

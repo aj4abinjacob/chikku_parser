@@ -2943,3 +2943,236 @@ html, body, #root {
   line-height: 18px;
 }
 
+// ── Pivot View ──
+
+.pivot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #edf8e9;
+  border-bottom: 1px solid #c7e0c0;
+  flex-shrink: 0;
+  min-height: 32px;
+}
+
+.pivot-toolbar-exit {
+  color: #5c7080;
+}
+
+.pivot-toolbar-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #0d8050;
+}
+
+.pivot-toolbar-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.pivot-breadcrumb-sep {
+  color: #8a9ba8;
+}
+
+.pivot-breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  background: rgba(13, 128, 80, 0.1);
+  border-radius: 3px;
+  font-size: 11px;
+  color: #0d8050;
+  font-weight: 500;
+}
+
+.pivot-toolbar-spacer {
+  flex: 1;
+}
+
+.pivot-toolbar-agg-select {
+  font-size: 11px;
+  max-width: 90px;
+}
+
+// Pivot group header cell
+.dg-pivot-group-header {
+  min-width: 100px;
+  font-weight: 600;
+  color: #394b59;
+  position: relative;
+  background: #f5f8fa;
+  border-right: 1px solid #d8e1e8;
+  padding: 6px 12px;
+
+  .dg-header-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 7px;
+    bottom: 0;
+    cursor: col-resize;
+    z-index: 1;
+
+    &:hover {
+      background: rgba(19, 124, 189, 0.3);
+    }
+  }
+}
+
+// Pivot group rows
+.dg-pivot-group-row {
+  background: #f5f8fa;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: #ebf1f5;
+  }
+}
+
+.dg-pivot-depth-0 {
+  border-left: 3px solid #137cbd;
+}
+
+.dg-pivot-depth-1 {
+  border-left: 3px solid #7157d9;
+}
+
+.dg-pivot-depth-2 {
+  border-left: 3px solid #d9822b;
+}
+
+.dg-pivot-depth-3 {
+  border-left: 3px solid #0d8050;
+}
+
+.dg-pivot-group-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.dg-pivot-expand-icon {
+  flex-shrink: 0;
+  color: #5c7080;
+}
+
+.dg-pivot-group-value {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dg-pivot-group-count {
+  color: #8a9ba8;
+  font-size: 11px;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+// Aggregate values in group rows — bold, right-aligned, primary color
+.dg-pivot-agg-value {
+  font-weight: 600;
+  text-align: right;
+  color: #394b59;
+}
+
+// Empty group column cell for data rows
+.dg-pivot-data-group-cell {
+  border-right: 1px solid #e1e8ed;
+}
+
+.dg-pivot-grand-total-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  background: #ebf1f5;
+  font-weight: 700;
+  border-top: 2px solid #394b59;
+
+  .dg-cell {
+    font-weight: 700;
+  }
+
+  .dg-pivot-agg-value {
+    font-weight: 700;
+  }
+}
+
+.dg-pivot-data-row {
+  background: #fff;
+}
+
+// Pivot indicator on header
+.pivot-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(13, 128, 80, 0.12);
+  color: #0d8050;
+}
+
+.pivot-indicator-number {
+  font-size: 9px;
+  font-weight: 700;
+  color: #0d8050;
+}
+
+// Pivot indicator on sidebar column pills
+.column-pivot-indicator {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+  transition: background 0.12s, opacity 0.12s;
+  opacity: 0;
+
+  .column-pivot-idle {
+    color: #8a9ba8;
+  }
+
+  &.active {
+    opacity: 1;
+    background: rgba(13, 128, 80, 0.1);
+    color: #0d8050;
+
+    .column-pivot-number {
+      font-size: 9px;
+      font-weight: 700;
+      color: #0d8050;
+    }
+  }
+
+  &:hover {
+    background: rgba(13, 128, 80, 0.15);
+  }
+}
+
+.column-item:hover .column-pivot-indicator {
+  opacity: 1;
+}
+
+.column-clear-pivot-btn {
+  color: #0d8050;
+}
+

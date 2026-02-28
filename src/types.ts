@@ -69,11 +69,38 @@ export interface SortColumn {
   direction: "ASC" | "DESC";
 }
 
+export interface PivotGroupColumn {
+  column: string;
+  direction: "ASC" | "DESC";
+}
+
+export type PivotAggFunction = "SUM" | "COUNT" | "AVG" | "MIN" | "MAX" | "MEDIAN" | "COUNT_DISTINCT";
+
+export interface PivotViewConfig {
+  groupColumns: PivotGroupColumn[];
+  showGrandTotal: boolean;
+  defaultAggFunction: PivotAggFunction;
+}
+
+export interface PivotFlatRow {
+  key: string;
+  type: "group" | "data";
+  depth: number;
+  groupColumn?: string;
+  groupValue?: any;
+  groupCount?: number;
+  aggregates?: Record<string, any>;
+  expanded?: boolean;
+  data?: Record<string, any>;
+  parentPath: { column: string; value: any }[];
+}
+
 export interface ViewState {
   visibleColumns: string[];
   columnOrder: string[];
   filters: FilterGroup;
   sortColumns: SortColumn[];
+  pivotConfig: PivotViewConfig | null;
 }
 
 export type FileFormat = "csv" | "tsv" | "json" | "parquet" | "xlsx" | "xls";

@@ -108,8 +108,8 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 ### Key Directories
 
 - `app/` — Electron main process + preload (Node.js context)
-- `src/components/` — React components (20 files)
-- `src/hooks/` — Custom React hooks (`useChunkCache`)
+- `src/components/` — React components (22 files)
+- `src/hooks/` — Custom React hooks (`useChunkCache`, `usePivotCache`)
 - `src/utils/` — SQL query builder, date detection, column ops SQL, and row ops SQL utilities
 - `src/types.ts` — All TypeScript interfaces
 - `src/styles/` — Less stylesheets (imports BlueprintJS CSS)
@@ -135,7 +135,10 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 
 ### App.tsx — Main Orchestrator
 - State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, `combineDialogOpen`, `combineTableNames`, `exportDialogOpen`, `pendingExcelImport`, `pendingRetry`, `colOpsSteps`, `undoStrategy`, `colOpsNextId`, `rowOpsSteps`, `rowOpsUndoStrategy`, `rowOpsNextId`
-- Uses `useChunkCache` hook for lazy data loading (no `rows`/`totalRows` state — provided by the hook)
+- Uses `useChunkCache` hook for lazy data loading in flat mode (no `rows`/`totalRows` state — provided by the hook)
+- Uses `usePivotCache` hook for tree-based pivot data loading when `pivotActive` is true
+- Conditional hook routing: `pivotActive = !!viewState.pivotConfig && viewState.pivotConfig.groupColumns.length > 0`; flat cache disabled when pivot active, pivot cache disabled when flat
+- `numericColumns` memo: `Set<string>` of columns matching `NUMERIC_RE`; passed to DataGrid when pivotActive for aggregate display decisions
 - Registers IPC listeners on mount: `onOpenFiles` (replace), `onAddFiles` (append), `onExportCSV` (opens ExportDialog)
 - `loadFiles(filePaths, replace)` — detects format by extension: Excel → `getExcelSheets()`, if >1 sheet opens `ExcelSheetPickerDialog`, else imports directly; CSV/TSV → tries `loadFile()`, on failure opens `ImportRetryDialog`; JSON/Parquet → straight `loadFile()` call
 - `handleExcelSheetImport(selectedSheets)` — imports selected sheets from the pending Excel file, each as a separate table named `{fileName}_{sheetName}`
@@ -148,6 +151,11 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - `handleCreateAggregateTable(sql)` — takes a SELECT SQL, generates unique `aggregate_N` name, executes `CREATE TABLE ... AS`, adds to tables state with `filePath: "(aggregate)"`
 - `handleCreatePivotTable(sql)` — takes a PIVOT SQL, generates unique `pivot_N` name, executes `CREATE TABLE ... AS (sql)`, adds to tables state with `filePath: "(pivot)"`
 - `handleLookupMerge(sql, options)` — executes a JOIN SQL for the Lookup Merge feature; if `options.replaceActive` is true, replaces the active table via `CREATE OR REPLACE TABLE`; otherwise creates a new `merge_N` table with `filePath: "(merge)"`
+- `handleTogglePivotMode()` — toggles `pivotConfig` between null (flat mode) and default config `{ groupColumns: [], showGrandTotal: true, defaultAggFunction: "SUM" }`
+- `handlePivotGroup(column, addLevel)` — same click/shift+click logic as `handleSort` but for `pivotConfig.groupColumns`; click = single group, shift+click = add/toggle/remove level
+- `handleClearPivotGroups()` — clears all group columns
+- `handleToggleGrandTotal()` — toggles `pivotConfig.showGrandTotal`
+- `handleDefaultAggChange(fn)` — updates `pivotConfig.defaultAggFunction`
 - `handleColOpApply(opType, column, params)` — determines undo strategy on first op (per-step vs snapshot based on free RAM), creates backup, auto-promotes non-VARCHAR columns to VARCHAR for string-producing ops (prefix/suffix, find/replace, regex, upper/lower, trim, assign), executes UPDATE SQL scoped by active filters, refreshes schema, records step
 - `handleColOpUndo()` — per-step mode: restores last backup via `ALTER TABLE RENAME`, removes step
 - `handleColOpRevertAll()` — snapshot mode: restores from `__colops_snapshot_*`, drops it, clears all steps
@@ -159,7 +167,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Cleanup effect: on `activeTable` change, drops all backup/snapshot tables for previous table, resets both colOpsSteps and rowOpsSteps and their undoStrategy
 - Schema fetching effect: re-fetches schema on `activeTable` change, auto-populates `visibleColumns`
 - `resetKey` counter: increments on table/filter/sort/column changes to trigger DataGrid scroll-to-top
-- Layout: `Sidebar + DataGrid + FilterPanel (with Filters/Column Ops/Row Ops tabs) + StatusBar + CombineDialog + ExportDialog + ExcelSheetPickerDialog + ImportRetryDialog`
+- Layout: `Sidebar + PivotToolbar (when pivotActive) + DataGrid + FilterPanel (with Filters/Column Ops/Row Ops tabs) + StatusBar + CombineDialog + ExportDialog + ExcelSheetPickerDialog + ImportRetryDialog`
 
 ### Sidebar.tsx — Left Panel
 - **Three-section flex layout**: Tables (max 20%, scrollable), Columns (flex remaining, scrollable), Operations (fixed at bottom); each section scrolls independently with sticky headers
@@ -172,6 +180,8 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Column search input (shown when 8+ columns) to filter column list by name
 - Column pills show native tooltip on hover with full column name
 - Sort indicators on column pills: numbered badge with direction arrow for active sorts, subtle icon on hover for unsorted; click to sort, Shift+click for multi-sort; "Clear sorts" button in header when sorts active
+- **Pivot view indicators**: when `pivotConfig` is active, green group badges (numbered) replace blue sort badges on column pills; click = `onPivotGroup(col, e.shiftKey)` mirrors sort behavior; "Clear groups" button in column header
+- "Pivot View" button (green when active) toggles pivot mode via `onTogglePivotMode`
 - "Data Operations" button opens `DataOperationsDialog`
 - "Aggregate" button opens `AggregateDialog`
 - "Pivot Table" button opens `PivotDialog`
@@ -252,6 +262,14 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Reuses `aggregate-*` CSS classes; only new class: `.pivot-distinct-preview`
 - Numeric type detection via same regex as AggregateDialog
 
+### PivotToolbar.tsx — Pivot View Controls
+- Thin bar displayed above the DataGrid when pivot mode is active with groupColumns
+- Props: `pivotConfig`, `onExpandAll`, `onCollapseAll`, `onToggleGrandTotal`, `onDefaultAggChange`, `onExitPivot`
+- Layout: `[X Exit] [Pivot View label] [breadcrumb: col1 > col2 > col3] ... [Expand All] [Collapse All] [Grand Total toggle] [Agg: SUM dropdown]`
+- Breadcrumb shows all group columns with direction arrows
+- Aggregate function dropdown: SUM, COUNT, AVG, MIN, MAX, MEDIAN
+- CSS namespace: `.pivot-toolbar-*`, `.pivot-breadcrumb-*`
+
 ### LookupMergeDialog.tsx — Lookup Merge (JOIN) Modal
 - Joins data from a right table into the active (left) table using DuckDB LEFT/INNER JOIN
 - Props: `isOpen`, `onClose`, `activeTable`, `schema`, `tables` (all loaded), `onExecute(sql, { replaceActive })`
@@ -292,14 +310,21 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - **Virtual scrolling** via `@tanstack/react-virtual` `useVirtualizer` — only renders visible rows (~30-50) plus 20 overscan rows
 - Div-based layout (flexbox rows, not `<table>`) with CSS classes `.dg-header`, `.dg-row`, `.dg-cell`
 - Props: `totalRows`, `getRow(index)`, `ensureRange(start, end)` from chunk cache — no `rows[]` array
-- Fixed `ROW_HEIGHT = 28` for virtualizer sizing
+- **Pivot mode props**: `pivotMode`, `pivotFlatRows`, `pivotGroupColumns`, `onToggleExpand`, `grandTotals`, `showGrandTotal`, `numericColumns`
+- Fixed `ROW_HEIGHT = 28` for virtualizer sizing, `PIVOT_GROUP_COL_WIDTH = 250` for dedicated group column
 - Sticky header inside scroll container for automatic horizontal scroll sync
-- Cell selection: click, click-drag (rectangular range), Shift+click (range), Cmd/Ctrl+click (toggle), Cmd/Ctrl+drag (add to selection) — uses absolute row indices
-- Copy: Cmd/Ctrl+C copies selected cells as TSV via `getRow()` lookup
+- **Dual-mode rendering**: when `pivotMode` is true, uses `pivotFlatRows` for row data instead of `getRow()`
+- **Dedicated Group column** (pivot mode): replaces `#` row number column with a resizable "Group" column (default `PIVOT_GROUP_COL_WIDTH = 250px`, key `__pivot_group__` in columnWidths) that contains the entire tree hierarchy — expand/collapse icons, indented group values (with native `title` tooltip for truncated values), and count badges all live in this column; drag-to-resize handle on header right edge; data columns remain clean for aggregates/values
+- **Group row rendering**: `.dg-pivot-group-row` with depth-based colored borders; entire row clickable for expand/collapse; Group column shows indent + chevron + value + count; numeric data columns show bold aggregate values (`.dg-pivot-agg-value`); non-numeric and grouped columns show blank
+- **Data row rendering** (within expanded groups): `.dg-pivot-data-row` with empty Group column (`.dg-pivot-data-group-cell`); data columns show actual cell values normally (no indent)
+- **Grand total row**: `.dg-pivot-grand-total-row` rendered **after** virtual rows (at the bottom of scroll content, not sticky to header); Group column shows "Total (count)"; numeric columns show bold aggregates; non-numeric columns blank
+- **Header pivot indicators**: green numbered badges (`.pivot-indicator`) instead of blue sort badges when pivot mode active; "Group" header replaces `#` header
+- Cell selection: click, click-drag (rectangular range), Shift+click (range), Cmd/Ctrl+click (toggle), Cmd/Ctrl+drag (add to selection) — uses absolute row indices; group rows are not selectable
+- Copy: Cmd/Ctrl+C copies selected cells as TSV; skips group rows in pivot mode
 - Multi-level sort: click column header for single-sort (ASC/DESC/remove), Shift+click to add sort levels with numbered indicators
 - Column resize: drag handle on header right edge
-- Column reorder: drag-and-drop header cells
-- Row numbering: absolute 1-based index in first column
+- Column reorder: drag-and-drop header cells (disabled in pivot mode)
+- Row numbering: absolute 1-based index in first column (flat mode only; replaced by Group column in pivot mode)
 - Number formatting: integers as-is, floats to 4 decimal places
 - Unloaded rows show "..." placeholder (`.loading-cell` style)
 - `resetKey` prop: scrolls to top and clears selection when it changes
@@ -404,6 +429,7 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 
 ### StatusBar.tsx — Bottom Info Bar
 - Shows: `{activeTable} | {totalRows} rows | {tableCount} table(s) loaded`
+- When pivot active: shows `| Grouped by: col1 > col2` segment
 - Info-only display (no pagination controls)
 
 ### Toolbar.tsx — Minimal Toolbar
@@ -421,6 +447,17 @@ React 18 entry point. Mounts `<App />` to `#root`. Imports `./styles/app.less`.
 - Returns: `{ totalRows, getRow(index), isRowLoaded(index), ensureRange(start, end) }`
 - Uses `buildChunkQuery()` for per-chunk SQL and `buildCountQuery()` for total count
 
+### usePivotCache (`src/hooks/usePivotCache.ts`) — Pivot View Data Loading
+- Tree-based cache for hierarchical row grouping with lazy expand
+- Internal `GroupNode` tree: each node has `column`, `value`, `count`, `aggregates`, `expanded`, `children` (sub-groups), `dataRows` (leaf data chunks)
+- **On activation**: queries top-level groups via `buildPivotGroupQuery()`, fetches grand totals via `buildPivotGrandTotalQuery()`
+- **On expand**: loads sub-groups (more levels) or data chunks (leaf level) via `buildPivotDataChunkQuery()`
+- **Flattening**: walks tree recursively emitting group rows + expanded children + data rows into `flatRows: PivotFlatRow[]`
+- **Aggregate auto-detection**: numeric columns (matching `NUMERIC_RE`) get `defaultAggFunction`, non-numeric skipped; exception: `COUNT_DISTINCT` applies to ALL columns
+- **Cache invalidation**: full reset on tableName/filters/groupColumns/visibleColumns/defaultAggFunction change (generation counter pattern)
+- **Leaf data chunks**: `CHUNK_SIZE = 1000`, lazy loading scoped by parentPath
+- Returns: `{ flatRows, grandTotals, loading, toggleExpand, expandAll, collapseAll, ensureRange }`
+
 ## Types (`src/types.ts`)
 
 ```typescript
@@ -435,7 +472,11 @@ hasActiveFilters() // checks if group has any children
 countConditions() // recursively counts leaf conditions in a group
 ColumnMapping     // { id, outputColumn, inputColumns: string[] }
 SortColumn        // { column: string, direction: "ASC" | "DESC" }
-ViewState         // { visibleColumns[], columnOrder[], filters: FilterGroup, sortColumns: SortColumn[] }
+PivotGroupColumn  // { column: string, direction: "ASC" | "DESC" }
+PivotAggFunction  // "SUM" | "COUNT" | "AVG" | "MIN" | "MAX" | "MEDIAN" | "COUNT_DISTINCT"
+PivotViewConfig   // { groupColumns: PivotGroupColumn[], showGrandTotal: boolean, defaultAggFunction: PivotAggFunction }
+PivotFlatRow      // { key, type: "group"|"data", depth, groupColumn?, groupValue?, groupCount?, aggregates?, expanded?, data?, parentPath[] }
+ViewState         // { visibleColumns[], columnOrder[], filters: FilterGroup, sortColumns: SortColumn[], pivotConfig: PivotViewConfig | null }
 FileFormat        // "csv" | "tsv" | "json" | "parquet" | "xlsx" | "xls"
 ImportOptions     // { csvDelimiter?, csvIgnoreErrors?, excelSheet? }
 SheetInfo         // { name, rowCount }
@@ -461,6 +502,9 @@ EXCEL_MAX_COLS    // 16,384
 | `buildMappedCombineQuery(tables[], mappings[])` | Column-mapped UNION ALL with aliases, NULL for missing columns, auto VARCHAR cast on type mismatch, trimmed output names |
 | `buildChunkQuery(tableName, columns, filters: FilterGroup, sortColumns: SortColumn[], chunkSize, chunkIndex)` | SELECT with multi-column ORDER BY, LIMIT/OFFSET for chunk-based virtual scroll loading |
 | `buildCountQuery(tableName, filters: FilterGroup)` | `SELECT COUNT(*) ... WHERE` for total row count |
+| `buildPivotGroupQuery(tableName, groupColumn, parentPath, aggConfigs, filters, direction)` | SELECT groupCol, COUNT(*), aggregates FROM table WHERE filters AND parent GROUP BY groupCol |
+| `buildPivotGrandTotalQuery(tableName, aggConfigs, filters)` | SELECT COUNT(*), aggregates FROM table WHERE filters (overall totals) |
+| `buildPivotDataChunkQuery(tableName, visibleColumns, parentPath, filters, sortColumns, chunkSize, chunkIndex)` | SELECT for leaf data rows within an expanded group, with parent path constraints |
 
 ## Column Ops SQL (`src/utils/colOpsSQL.ts`)
 
@@ -512,6 +556,10 @@ EXCEL_MAX_COLS    // 16,384
 - Regex picker: `.regex-picker-popover`, `.regex-picker-search`, `.regex-picker-list`, `.regex-picker-category`, `.regex-picker-category-label`, `.regex-picker-item`, `.regex-picker-item-title`, `.regex-picker-item-pattern`, `.regex-picker-footer`
 - Regex manager: `.regex-manager-content`, `.regex-manager-section`, `.regex-manager-section-header`, `.regex-manager-table-wrapper`, `.regex-manager-table`, `.regex-manager-empty`, `.regex-manager-form`, `.regex-manager-form-header`, `.regex-manager-form-row`, `.regex-manager-footer-left`
 - Searchable column select: `.col-select-trigger` (with `-fill`, `-text`, `-placeholder`, `-caret`), `.col-select-popover`, `.col-select-search`, `.col-select-list`, `.col-select-empty`, `.col-select-item` (with `-selected`, `-highlight`, `-name`, `-type`)
+- Pivot toolbar: `.pivot-toolbar`, `.pivot-toolbar-exit`, `.pivot-toolbar-label`, `.pivot-toolbar-breadcrumb`, `.pivot-breadcrumb-sep`, `.pivot-breadcrumb-item`, `.pivot-toolbar-spacer`, `.pivot-toolbar-agg-select`
+- Pivot grid: `.dg-pivot-group-header`, `.dg-pivot-group-row`, `.dg-pivot-depth-{0-3}` (depth-based colored left borders), `.dg-pivot-group-cell`, `.dg-pivot-expand-icon`, `.dg-pivot-group-value`, `.dg-pivot-group-count`, `.dg-pivot-agg-value` (bold, right-aligned aggregates), `.dg-pivot-data-group-cell` (empty group cell for data rows), `.dg-pivot-grand-total-row` (bottom, not sticky), `.dg-pivot-data-row`
+- Pivot header indicators: `.pivot-indicator`, `.pivot-indicator-number`
+- Pivot sidebar indicators: `.column-pivot-indicator` (with `.active`, `.column-pivot-number`, `.column-pivot-idle`), `.column-clear-pivot-btn`
 
 ## Data Flow
 
@@ -533,7 +581,8 @@ EXCEL_MAX_COLS    // 16,384
 16. **Date Conversion**: User opens Date Conversion dialog → selects date column (and optionally a group-by column) → format auto-detected per group using max-value heuristic → user resolves ambiguous formats via dropdown → selects output format → preview shows converted values + NULL parse count → apply executes `CREATE OR REPLACE TABLE ... AS SELECT` with `strftime(TRY_STRPTIME(...))` expressions (CASE WHEN for per-group formats)
 17. **Column Ops**: User opens FilterPanel → switches to "Column Ops" tab → selects column and operation → filtered-rows banner shows scope → Apply executes `UPDATE ... SET ... WHERE` scoped by active filters → adaptive undo: per-step mode creates `__colops_backup_N_table` before each op (undo restores via `ALTER TABLE RENAME`), snapshot mode creates single `__colops_snapshot_table` before first op (only "Revert All" available) → strategy chosen based on estimated table size vs 15% of free RAM → backups cleaned up on table switch
 18. **Row Ops**: User opens FilterPanel → switches to "Row Ops" tab → selects operation (Delete Filtered, Keep Filtered, Remove Empty, Remove Duplicates) → for remove_empty/remove_duplicates can select specific columns → preview count shows rows to be removed → Apply shows confirmation Alert → executes DELETE or CREATE OR REPLACE TABLE SQL → adaptive undo: per-step mode creates `__rowops_backup_N_table` before each op, snapshot mode creates single `__rowops_snapshot_table` → independent undo history from Column Ops → backups cleaned up on table switch
-19. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
+19. **Pivot View** (Interactive Row Grouping): User clicks "Pivot View" button in sidebar → pivot toolbar appears above grid → click column header = primary group, Shift+click = add levels (mirrors sort UX) → rows grouped hierarchically with expand/collapse arrows → group rows show SUM for numeric columns (configurable: COUNT, AVG, MIN, MAX, MEDIAN) → grand total row shows overall aggregates → Expand All / Collapse All buttons → expanding deepest level reveals individual data rows (chunk-loaded) → works with active filters → click "X" to exit → pivot resets on table switch
+20. **Export**: Cmd+E or sidebar Export button opens `ExportDialog` → user picks format (CSV/TSV/JSON/Excel/Parquet), tables, and view options → exports via `exportFile()` or `exportExcelMulti()` for multi-sheet Excel
 
 ## Keyboard Shortcuts
 
