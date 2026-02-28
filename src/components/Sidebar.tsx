@@ -324,16 +324,16 @@ export function Sidebar({
                 small
                 text="All"
                 title="Show all columns"
-                disabled={allVisible}
                 onClick={() => onSetVisibleColumns(allColumnNames)}
+                className="column-visibility-btn"
               />
               <Button
                 minimal
                 small
                 text="None"
                 title="Hide all columns"
-                disabled={noneVisible}
                 onClick={() => onSetVisibleColumns([])}
+                className="column-visibility-btn"
               />
               {pivotConfig && pivotConfig.groupColumns.length > 0 && (
                 <Button

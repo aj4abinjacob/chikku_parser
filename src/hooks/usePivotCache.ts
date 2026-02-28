@@ -82,20 +82,68 @@ export function usePivotCache({
     [schema]
   );
 
-  // Cache invalidation key
+  // Helper: get effective direction for a group column (sort overrides group direction)
+  const getEffectiveGroupDir = (gc: { column: string; direction: "ASC" | "DESC" }) => {
+    const se = viewState.sortColumns.find((sc) => sc.column === gc.column);
+    return se ? se.direction : gc.direction;
+  };
+
+  // Structural cache key (excludes sort — sort changes are handled separately)
   const filtersKey = JSON.stringify(viewState.filters);
   const groupColumnsKey = JSON.stringify(groupColumns);
   const visibleColumnsKey = [...viewState.visibleColumns].sort().join(",");
   const cacheKey = `${tableName}|${enabled}|${groupColumnsKey}|${filtersKey}|${visibleColumnsKey}|${defaultAggFn}`;
   const prevCacheKeyRef = useRef("");
 
-  // Reset on cache key change
+  // Reset on structural cache key change
   if (cacheKey !== prevCacheKeyRef.current) {
     prevCacheKeyRef.current = cacheKey;
     rootNodesRef.current = [];
     setRootNodes([]);
     setGrandTotals(null);
     generationRef.current += 1;
+  }
+
+  // Handle sort changes without full tree reset — preserve expand state
+  const sortColumnsKey = JSON.stringify(viewState.sortColumns);
+  const prevSortKeyRef = useRef(sortColumnsKey);
+
+  if (sortColumnsKey !== prevSortKeyRef.current) {
+    prevSortKeyRef.current = sortColumnsKey;
+
+    if (rootNodesRef.current.length > 0) {
+      generationRef.current += 1;
+
+      const clearAndSort = (nodes: GroupNode[], depth: number) => {
+        // Re-sort this level if the group column has a sort entry
+        if (depth < groupColumns.length) {
+          const dir = getEffectiveGroupDir(groupColumns[depth]);
+          nodes.sort((a, b) => {
+            const va = a.value;
+            const vb = b.value;
+            if (va == null && vb == null) return 0;
+            if (va == null) return 1;
+            if (vb == null) return -1;
+            const cmp = typeof va === "number" && typeof vb === "number"
+              ? va - vb
+              : String(va).localeCompare(String(vb));
+            return dir === "ASC" ? cmp : -cmp;
+          });
+        }
+
+        for (const node of nodes) {
+          // Clear cached data rows (they need refetching with new ORDER BY)
+          node.dataRows = new Map();
+          node.dataLoading = new Set();
+          if (node.children && node.children.length > 0) {
+            clearAndSort(node.children, depth + 1);
+          }
+        }
+      };
+
+      clearAndSort(rootNodesRef.current, 0);
+      setRootNodes([...rootNodesRef.current]);
+    }
   }
 
   // Fetch top-level groups and grand totals
@@ -114,13 +162,14 @@ export function usePivotCache({
       setLoading(true);
       try {
         const firstGroup = groupColumns[0];
+        const effectiveDir = getEffectiveGroupDir(firstGroup);
         const sql = buildPivotGroupQuery(
           tableName,
           firstGroup.column,
           [],
           aggConfigs,
           viewState.filters,
-          firstGroup.direction
+          effectiveDir
         );
         const rows = await window.api.query(sql);
         if (generationRef.current !== gen) return;
@@ -206,13 +255,14 @@ export function usePivotCache({
       if (depthIndex < groupColumns.length - 1) {
         // Load sub-groups
         const nextGroup = groupColumns[depthIndex + 1];
+        const effectiveDir = getEffectiveGroupDir(nextGroup);
         const sql = buildPivotGroupQuery(
           tableName,
           nextGroup.column,
           parentPath,
           aggConfigs,
           viewState.filters,
-          nextGroup.direction
+          effectiveDir
         );
         try {
           const rows = await window.api.query(sql);
@@ -252,7 +302,7 @@ export function usePivotCache({
         setRootNodes([...rootNodesRef.current]);
       }
     },
-    [tableName, groupColumns, viewState.filters, defaultAggFn, getAggConfigs]
+    [tableName, groupColumns, viewState.filters, viewState.sortColumns, defaultAggFn, getAggConfigs]
   );
 
   // Load a data chunk for a leaf group
