@@ -644,9 +644,9 @@ html, body, #root {
 
 // ── Status bar ──
 .status-bar {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 0 12px;
   height: var(--statusbar-height);
   background: #fff;
@@ -654,6 +654,53 @@ html, body, #root {
   font-size: 12px;
   color: #5c7080;
   flex-shrink: 0;
+}
+
+// ── Filter toggle (positioned at data-area x start) ──
+.filter-toggle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  cursor: pointer;
+  user-select: none;
+  border-left: 1px solid #d8e1e8;
+
+  &:hover {
+    background: #ebf1f5;
+  }
+
+  &.active {
+    background: rgba(19, 124, 189, 0.08);
+  }
+}
+
+.filter-toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #5c7080;
+
+  .filter-toggle.active & {
+    color: #137cbd;
+  }
+}
+
+.filter-toggle-badge {
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(19, 124, 189, 0.15);
+  color: #137cbd;
 }
 
 // ── Welcome screen ──

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button } from "@blueprintjs/core";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn, PivotAggFunction, PivotGroupColumn, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, countConditions, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn, PivotAggFunction, PivotGroupColumn, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
@@ -1508,8 +1508,6 @@ export function App(): React.ReactElement {
             onExport={() => setExportDialogOpen(true)}
             onOpenHistory={() => setHistoryDialogOpen(true)}
             onHide={() => setSidebarVisible(false)}
-            filterPanelOpen={filterPanelOpen}
-            onToggleFilterPanel={() => setFilterPanelOpen((v) => !v)}
           />
         ) : (
           <div className="sidebar-collapsed">
@@ -1603,8 +1601,11 @@ export function App(): React.ReactElement {
             : null
         }
         activeTable={activeTable}
-        tableCount={tables.length}
         pivotConfig={viewState.pivotConfig}
+        filterPanelOpen={filterPanelOpen}
+        onToggleFilterPanel={() => setFilterPanelOpen((v) => !v)}
+        activeFilterCount={countConditions(viewState.filters)}
+        sidebarVisible={sidebarVisible}
       />
       <CombineDialog
         isOpen={combineDialogOpen}

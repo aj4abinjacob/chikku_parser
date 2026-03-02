@@ -21,7 +21,6 @@ interface SidebarProps {
   visibleColumns: string[];
   columnOrder: string[];
   sortColumns: SortColumn[];
-  filterPanelOpen: boolean;
   onSelectTable: (tableName: string) => void;
   onToggleColumn: (colName: string) => void;
   onSetVisibleColumns: (cols: string[]) => void;
@@ -41,7 +40,6 @@ interface SidebarProps {
   onExport: () => void;
   onOpenHistory: () => void;
   onHide: () => void;
-  onToggleFilterPanel: () => void;
 }
 
 export function Sidebar({
@@ -51,7 +49,6 @@ export function Sidebar({
   visibleColumns,
   columnOrder,
   sortColumns,
-  filterPanelOpen,
   onSelectTable,
   onToggleColumn,
   onSetVisibleColumns,
@@ -71,7 +68,6 @@ export function Sidebar({
   onExport,
   onOpenHistory,
   onHide,
-  onToggleFilterPanel,
 }: SidebarProps): React.ReactElement {
   const [dataOpDialogOpen, setDataOpDialogOpen] = useState(false);
   const [aggregateDialogOpen, setAggregateDialogOpen] = useState(false);
@@ -459,14 +455,6 @@ export function Sidebar({
       {/* Data operation + filter buttons */}
       {activeTable && schema.length > 0 && (
         <div className="sidebar-section sidebar-actions">
-          <Button
-            icon="filter"
-            text="Filters"
-            onClick={onToggleFilterPanel}
-            active={filterPanelOpen}
-            small
-            fill
-          />
           <Button
             icon="grouped-bar-chart"
             text="Aggregate"

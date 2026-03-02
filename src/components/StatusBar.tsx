@@ -5,16 +5,22 @@ interface StatusBarProps {
   totalRows: number;
   unfilteredRows: number | null;
   activeTable: string | null;
-  tableCount: number;
   pivotConfig?: PivotViewConfig | null;
+  filterPanelOpen: boolean;
+  onToggleFilterPanel: () => void;
+  activeFilterCount: number;
+  sidebarVisible: boolean;
 }
 
 export function StatusBar({
   totalRows,
   unfilteredRows,
   activeTable,
-  tableCount,
   pivotConfig,
+  filterPanelOpen,
+  onToggleFilterPanel,
+  activeFilterCount,
+  sidebarVisible,
 }: StatusBarProps): React.ReactElement {
   const isFiltered = unfilteredRows !== null && totalRows !== unfilteredRows;
   const rowsDisplay = isFiltered
@@ -28,11 +34,23 @@ export function StatusBar({
 
   return (
     <div className="status-bar">
-      <span>
+      <span className="status-bar-rows" style={{ marginLeft: "auto" }}>
         {activeTable
-          ? `${activeTable} | ${rowsDisplay}${pivotDisplay} | ${tableCount} table(s) loaded`
+          ? `${rowsDisplay}${pivotDisplay}`
           : "No table selected"}
       </span>
+      {activeTable && (
+        <div
+          className={`filter-toggle${filterPanelOpen ? " active" : ""}`}
+          style={{ left: sidebarVisible ? "var(--sidebar-width)" : "36px" }}
+          onClick={onToggleFilterPanel}
+        >
+          <span className="filter-toggle-label">Filters</span>
+          {activeFilterCount > 0 && !filterPanelOpen && (
+            <span className="filter-toggle-badge">{activeFilterCount}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
