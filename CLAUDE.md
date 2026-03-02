@@ -61,7 +61,7 @@ Electron 31, React 18, TypeScript 5 (strict, ES2020, CommonJS), DuckDB (in-memor
 ## Components
 
 ### App.tsx — Main Orchestrator
-- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, dialog states, `colOpsSteps`/`rowOpsSteps` with `undoStrategy`, `savedViewsMap` (per-table saved views)
+- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, dialog states, `colOpsSteps`/`rowOpsSteps` with `undoStrategy`, `savedViews` (global flat array of SavedView)
 - Hooks: `useChunkCache` (flat mode), `usePivotCache` (pivot mode, when `pivotConfig.groupColumns.length > 0`)
 - Key handlers: `loadFiles`, `handleDeleteTable`, `handleCombineExecute`, `handleDataOperation`, `handleSampleTable`, `handleCreateAggregateTable`, `handleCreatePivotTable`, `handleLookupMerge`, `handleColOpApply`, `handleColOpUndo`, `handleRowOpApply`, `handleRowOpUndo`
 - `handleColOpApply`: reads `params.targetMode` ("replace"|"new_column"|"existing_column") and `params.targetColumn`; "new_column" adds column via `ALTER TABLE ADD COLUMN`; promotes non-VARCHAR to VARCHAR for string ops; executes `UPDATE` scoped by filters; adaptive undo (per-step vs snapshot based on RAM)
@@ -74,7 +74,7 @@ Three sections: Tables (max 20%), Columns (flex), Operations (fixed bottom). Tab
 Virtual scrolling via `@tanstack/react-virtual`. Div-based layout. Dual-mode: flat (chunk cache) and pivot (tree with group/data rows). Cell selection, copy (TSV), multi-sort, column resize/reorder. `ROW_HEIGHT = 28`.
 
 ### FilterPanel.tsx — Bottom Panel (Filters + Column Ops + Row Ops + Views)
-Resizable (80-500px). Four tabs. Recursive AND/OR filter groups. Operators include CONTAINS (regex), IN (value picker). Draft state model with immutable updates. Views tab with badge count.
+Resizable (80-500px). Four tabs. Recursive AND/OR filter groups. Operators include CONTAINS (regex), IN (value picker). Draft state model with immutable updates. Views tab with badge count. "Save as View" inline button in Filters tab header for quick view creation.
 
 ### ColumnOpsPanel.tsx — Column Ops Tab
 Side-by-side layout: left config panel (~300px, scrollable) with stacked form fields, right preview panel (flex). Operations grouped in `<optgroup>`: Text (Trim, UPPERCASE, lowercase), Search (Find & Replace, Regex Extract), Modify (Set Value, Prefix/Suffix, Extract Numbers, Clear to NULL). **Target mode** for all ops except clear_null: "Same column" (replace), "New column", "Existing column". **Live preview**: debounced (300ms) 5-sample Before/After table with empty state. **Collapsible history**: collapsed by default showing `History (N)` toggle, expands to show step list with undo/revert actions. Adaptive undo (per-step/snapshot). Regex pattern picker integration.
@@ -97,7 +97,7 @@ Side-by-side layout: left config panel (~300px, scrollable) with stacked form fi
 - **RegexPatternPicker.tsx**: Inline pattern picker grouped by category
 - **RegexPatternManagerDialog.tsx**: Pattern CRUD + import/export
 - **RowOpsPanel.tsx**: Row ops (delete_filtered, keep_filtered, remove_empty, remove_duplicates) with independent undo
-- **ViewsPanel.tsx**: Saved Views tab — save/apply/update/rename/delete named ViewState snapshots per-table. In-memory only, no new tables created. Save form with summary, scrollable view list with hover-reveal actions, inline rename via double-click
+- **ViewsPanel.tsx**: Saved Views tab — save/apply/update/rename/delete named ViewState snapshots globally (visible across all tables). In-memory only, no new tables created. Save form with summary, scrollable view list with hover-reveal actions, inline rename via double-click. Compatibility checking: views with filter columns missing from current table schema are greyed out with disabled Apply button and tooltip showing missing columns. Origin badge shows source table name.
 - **StatusBar.tsx**: Table name, row count, pivot status
 - **Toolbar.tsx**: Sidebar toggle (largely superseded by Sidebar)
 
@@ -111,7 +111,7 @@ Tree-based GroupNode cache. Lazy expand (sub-groups or data chunks). Returns `{ 
 
 ## Types (`src/types.ts`)
 
-Key types: `ColumnInfo`, `LoadedTable`, `ViewState`, `FilterGroup`/`FilterNode`/`FilterCondition` (recursive), `SortColumn`, `PivotGroupColumn`, `PivotViewConfig`, `PivotFlatRow`, `ColOpType`, `ColOpTargetMode` ("replace"|"new_column"|"existing_column"), `ColOpStep`, `RowOpType`, `RowOpStep`, `UndoStrategy`, `ColumnMapping`, `RegexPattern`, `SavedView`, `FileFormat`, `ImportOptions`, `SheetInfo`. Helper functions: `isFilterGroup()`, `hasActiveFilters()`, `countConditions()`. Constants: `EXCEL_MAX_ROWS`, `EXCEL_MAX_COLS`.
+Key types: `ColumnInfo`, `LoadedTable`, `ViewState`, `FilterGroup`/`FilterNode`/`FilterCondition` (recursive), `SortColumn`, `PivotGroupColumn`, `PivotViewConfig`, `PivotFlatRow`, `ColOpType`, `ColOpTargetMode` ("replace"|"new_column"|"existing_column"), `ColOpStep`, `RowOpType`, `RowOpStep`, `UndoStrategy`, `ColumnMapping`, `RegexPattern`, `SavedView`, `FileFormat`, `ImportOptions`, `SheetInfo`. Helper functions: `isFilterGroup()`, `hasActiveFilters()`, `countConditions()`, `extractFilterColumns()`. Constants: `EXCEL_MAX_ROWS`, `EXCEL_MAX_COLS`.
 
 ## Utils
 

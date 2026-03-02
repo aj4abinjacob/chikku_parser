@@ -111,7 +111,7 @@ export function App(): React.ReactElement {
     sortColumns: [],
     pivotConfig: null,
   });
-  const [savedViewsMap, setSavedViewsMap] = useState<Map<string, SavedView[]>>(new Map());
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [savedViewNextId, setSavedViewNextId] = useState(1);
 
   // Use refs so IPC callbacks always see latest state
@@ -402,13 +402,7 @@ export function App(): React.ReactElement {
     } catch (err) {
       console.error("Drop table error:", err);
     }
-    // Clean up saved views for the deleted table
-    setSavedViewsMap((prev) => {
-      if (!prev.has(tableName)) return prev;
-      const next = new Map(prev);
-      next.delete(tableName);
-      return next;
-    });
+    // Note: views are global now — keep them even when the source table is deleted
     setTables((prev) => {
       const remaining = prev.filter((t) => t.tableName !== tableName);
       if (activeTableRef.current === tableName) {
@@ -652,56 +646,45 @@ export function App(): React.ReactElement {
       createdAt: now,
       updatedAt: now,
     };
-    setSavedViewsMap((prev) => {
-      const next = new Map(prev);
-      const list = next.get(activeTable) || [];
-      next.set(activeTable, [...list, newView]);
-      return next;
-    });
+    setSavedViews((prev) => [...prev, newView]);
   }, [activeTable, viewState, savedViewNextId]);
 
   const handleApplyView = useCallback((view: SavedView) => {
-    setViewState(JSON.parse(JSON.stringify(view.viewState)));
+    const vs: ViewState = JSON.parse(JSON.stringify(view.viewState));
+    // Silently filter visible columns and column order to what exists in current schema
+    const currentCols = new Set(schema.map((c) => c.column_name));
+    vs.columnOrder = vs.columnOrder.filter((c) => currentCols.has(c));
+    vs.visibleColumns = vs.visibleColumns.filter((c) => currentCols.has(c));
+    // If columnOrder is empty after filtering, fall back to current schema order
+    if (vs.columnOrder.length === 0) {
+      vs.columnOrder = schema.map((c) => c.column_name);
+      vs.visibleColumns = [...vs.columnOrder];
+    }
+    setViewState(vs);
     setResetKey((k) => k + 1);
-  }, []);
+  }, [schema]);
 
   const handleUpdateView = useCallback((viewId: string) => {
-    if (!activeTable) return;
-    setSavedViewsMap((prev) => {
-      const next = new Map(prev);
-      const list = next.get(activeTable) || [];
-      next.set(activeTable, list.map((v) =>
+    setSavedViews((prev) =>
+      prev.map((v) =>
         v.id === viewId
           ? { ...v, viewState: JSON.parse(JSON.stringify(viewState)), updatedAt: Date.now() }
           : v
-      ));
-      return next;
-    });
-  }, [activeTable, viewState]);
+      )
+    );
+  }, [viewState]);
 
   const handleDeleteView = useCallback((viewId: string) => {
-    if (!activeTable) return;
-    setSavedViewsMap((prev) => {
-      const next = new Map(prev);
-      const list = next.get(activeTable) || [];
-      const filtered = list.filter((v) => v.id !== viewId);
-      if (filtered.length === 0) next.delete(activeTable);
-      else next.set(activeTable, filtered);
-      return next;
-    });
-  }, [activeTable]);
+    setSavedViews((prev) => prev.filter((v) => v.id !== viewId));
+  }, []);
 
   const handleRenameView = useCallback((viewId: string, newName: string) => {
-    if (!activeTable) return;
-    setSavedViewsMap((prev) => {
-      const next = new Map(prev);
-      const list = next.get(activeTable) || [];
-      next.set(activeTable, list.map((v) =>
+    setSavedViews((prev) =>
+      prev.map((v) =>
         v.id === viewId ? { ...v, name: newName, updatedAt: Date.now() } : v
-      ));
-      return next;
-    });
-  }, [activeTable]);
+      )
+    );
+  }, []);
 
   // Data operation: run SQL to transform columns/rows
   const handleDataOperation = useCallback(
@@ -1361,7 +1344,7 @@ export function App(): React.ReactElement {
                       ? tables.find((t) => t.tableName === activeTable)?.rowCount ?? null
                       : null
                   }
-                  savedViews={activeTable ? savedViewsMap.get(activeTable) || [] : []}
+                  savedViews={savedViews}
                   currentViewState={viewState}
                   onSaveView={handleSaveView}
                   onApplyView={handleApplyView}

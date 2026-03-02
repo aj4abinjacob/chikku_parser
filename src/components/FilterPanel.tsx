@@ -665,6 +665,8 @@ export function FilterPanel({
   );
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const [activeTab, setActiveTab] = useState<"filters" | "colops" | "rowops" | "views">("filters");
+  const [showSaveAsView, setShowSaveAsView] = useState(false);
+  const [saveViewName, setSaveViewName] = useState("");
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -802,22 +804,77 @@ export function FilterPanel({
           </div>
         </div>
         <div className="filter-panel-header-right">
-          {activeTab === "filters" && draftHasContent && (
+          {activeTab === "filters" && (
             <>
-              <Button
-                icon="cross"
-                text="Clear All"
-                small
-                minimal
-                onClick={clearAll}
-              />
-              <Button
-                intent={Intent.PRIMARY}
-                text="Apply Filters"
-                small
-                onClick={applyFilters}
-                disabled={!isDirty && hasActiveFilters(activeFilters)}
-              />
+              {showSaveAsView ? (
+                <div className="filter-save-view-inline">
+                  <InputGroup
+                    placeholder="View name..."
+                    value={saveViewName}
+                    onChange={(e) => setSaveViewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && saveViewName.trim()) {
+                        onSaveView(saveViewName.trim());
+                        setSaveViewName("");
+                        setShowSaveAsView(false);
+                      }
+                      if (e.key === "Escape") {
+                        setSaveViewName("");
+                        setShowSaveAsView(false);
+                      }
+                    }}
+                    small
+                    autoFocus
+                  />
+                  <Button
+                    icon="tick"
+                    small
+                    minimal
+                    intent={Intent.SUCCESS}
+                    disabled={!saveViewName.trim()}
+                    onClick={() => {
+                      onSaveView(saveViewName.trim());
+                      setSaveViewName("");
+                      setShowSaveAsView(false);
+                    }}
+                  />
+                  <Button
+                    icon="cross"
+                    small
+                    minimal
+                    onClick={() => {
+                      setSaveViewName("");
+                      setShowSaveAsView(false);
+                    }}
+                  />
+                </div>
+              ) : (
+                <Button
+                  icon="bookmark"
+                  text="Save as View"
+                  small
+                  minimal
+                  onClick={() => setShowSaveAsView(true)}
+                />
+              )}
+              {draftHasContent && (
+                <>
+                  <Button
+                    icon="cross"
+                    text="Clear All"
+                    small
+                    minimal
+                    onClick={clearAll}
+                  />
+                  <Button
+                    intent={Intent.PRIMARY}
+                    text="Apply Filters"
+                    small
+                    onClick={applyFilters}
+                    disabled={!isDirty && hasActiveFilters(activeFilters)}
+                  />
+                </>
+              )}
             </>
           )}
         </div>
@@ -867,6 +924,7 @@ export function FilterPanel({
         visible={activeTab === "views"}
         savedViews={savedViews}
         currentViewState={currentViewState}
+        schema={columns}
         onSaveView={onSaveView}
         onApplyView={onApplyView}
         onUpdateView={onUpdateView}

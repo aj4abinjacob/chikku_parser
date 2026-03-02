@@ -58,6 +58,18 @@ export function countConditions(group: FilterGroup): number {
   return count;
 }
 
+export function extractFilterColumns(group: FilterGroup): Set<string> {
+  const cols = new Set<string>();
+  for (const child of group.children) {
+    if (isFilterGroup(child)) {
+      for (const c of extractFilterColumns(child)) cols.add(c);
+    } else {
+      if (child.column) cols.add(child.column);
+    }
+  }
+  return cols;
+}
+
 export interface ColumnMapping {
   id: string;
   outputColumn: string;

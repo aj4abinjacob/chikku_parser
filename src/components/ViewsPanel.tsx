@@ -1,19 +1,23 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Button, InputGroup, Intent, Icon } from "@blueprintjs/core";
+import { Tooltip2 } from "@blueprintjs/popover2";
 import {
   SavedView,
   ViewState,
+  ColumnInfo,
   FilterGroup,
   FilterNode,
   isFilterGroup,
   countConditions,
   hasActiveFilters,
+  extractFilterColumns,
 } from "../types";
 
 interface ViewsPanelProps {
   visible: boolean;
   savedViews: SavedView[];
   currentViewState: ViewState;
+  schema: ColumnInfo[];
   onSaveView: (name: string) => void;
   onApplyView: (view: SavedView) => void;
   onUpdateView: (viewId: string) => void;
@@ -64,6 +68,7 @@ export function ViewsPanel({
   visible,
   savedViews,
   currentViewState,
+  schema,
   onSaveView,
   onApplyView,
   onUpdateView,
@@ -75,6 +80,27 @@ export function ViewsPanel({
   const [renameValue, setRenameValue] = useState("");
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const schemaColumnNames = useMemo(
+    () => new Set(schema.map((c) => c.column_name)),
+    [schema]
+  );
+
+  const getMissingColumns = useCallback(
+    (view: SavedView): string[] => {
+      const referenced = new Set<string>();
+      // Filter columns
+      for (const c of extractFilterColumns(view.viewState.filters)) referenced.add(c);
+      // Sort columns
+      for (const s of view.viewState.sortColumns) referenced.add(s.column);
+      // Pivot group columns
+      if (view.viewState.pivotConfig) {
+        for (const g of view.viewState.pivotConfig.groupColumns) referenced.add(g.column);
+      }
+      return Array.from(referenced).filter((c) => !schemaColumnNames.has(c));
+    },
+    [schemaColumnNames]
+  );
 
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
@@ -150,57 +176,77 @@ export function ViewsPanel({
                 <span className="views-steps-title">Saved Views ({savedViews.length})</span>
               </div>
               <div className="views-step-list">
-                {savedViews.map((view, idx) => (
-                  <div
-                    key={view.id}
-                    className={`views-step-item ${selectedViewId === view.id ? "views-step-selected" : ""}`}
-                    onClick={() => setSelectedViewId(selectedViewId === view.id ? null : view.id)}
-                  >
-                    <span className="views-step-number">{idx + 1}</span>
-                    {renamingId === view.id ? (
-                      <InputGroup
-                        inputRef={renameInputRef}
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={handleRenameKeyDown}
-                        onBlur={handleRenameCommit}
-                        small
-                        className="views-rename-input"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span
-                        className="views-step-desc"
-                        onDoubleClick={(e) => { e.stopPropagation(); handleRenameStart(view); }}
-                        title="Double-click to rename"
-                      >
-                        {view.name}
-                      </span>
-                    )}
-                    <div className="views-step-actions">
-                      <Button
-                        small
-                        minimal
-                        text="Apply"
-                        intent={Intent.PRIMARY}
-                        onClick={(e) => { e.stopPropagation(); onApplyView(view); }}
-                      />
-                      <Button
-                        small
-                        minimal
-                        text="Update"
-                        onClick={(e) => { e.stopPropagation(); onUpdateView(view.id); }}
-                      />
-                      <Button
-                        small
-                        minimal
-                        icon="trash"
-                        intent={Intent.DANGER}
-                        onClick={(e) => { e.stopPropagation(); onDeleteView(view.id); }}
-                      />
+                {savedViews.map((view, idx) => {
+                  const missing = getMissingColumns(view);
+                  const isCompatible = missing.length === 0;
+                  const itemClass = `views-step-item ${selectedViewId === view.id ? "views-step-selected" : ""} ${!isCompatible ? "views-step-incompatible" : ""}`;
+                  const row = (
+                    <div
+                      key={view.id}
+                      className={itemClass}
+                      onClick={() => setSelectedViewId(selectedViewId === view.id ? null : view.id)}
+                    >
+                      <span className="views-step-number">{idx + 1}</span>
+                      {renamingId === view.id ? (
+                        <InputGroup
+                          inputRef={renameInputRef}
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={handleRenameKeyDown}
+                          onBlur={handleRenameCommit}
+                          small
+                          className="views-rename-input"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span
+                          className="views-step-desc"
+                          onDoubleClick={(e) => { e.stopPropagation(); handleRenameStart(view); }}
+                          title="Double-click to rename"
+                        >
+                          {view.name}
+                          <span className="views-step-origin">{view.tableName}</span>
+                        </span>
+                      )}
+                      <div className="views-step-actions">
+                        <Button
+                          small
+                          minimal
+                          text="Apply"
+                          intent={Intent.PRIMARY}
+                          disabled={!isCompatible}
+                          onClick={(e) => { e.stopPropagation(); onApplyView(view); }}
+                        />
+                        <Button
+                          small
+                          minimal
+                          text="Update"
+                          onClick={(e) => { e.stopPropagation(); onUpdateView(view.id); }}
+                        />
+                        <Button
+                          small
+                          minimal
+                          icon="trash"
+                          intent={Intent.DANGER}
+                          onClick={(e) => { e.stopPropagation(); onDeleteView(view.id); }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                  if (!isCompatible) {
+                    return (
+                      <Tooltip2
+                        key={view.id}
+                        content={`Missing columns: ${missing.join(", ")}`}
+                        placement="top"
+                        minimal
+                      >
+                        {row}
+                      </Tooltip2>
+                    );
+                  }
+                  return row;
+                })}
               </div>
             </div>
           ) : (
