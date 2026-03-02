@@ -21,9 +21,12 @@ import {
   RowOpType,
   RowOpStep,
   UndoStrategy,
+  SavedView,
+  ViewState,
 } from "../types";
 import { ColumnOpsPanel } from "./ColumnOpsPanel";
 import { RowOpsPanel } from "./RowOpsPanel";
+import { ViewsPanel } from "./ViewsPanel";
 import { SearchableColumnSelect } from "./SearchableColumnSelect";
 
 const OPERATORS: { value: FilterCondition["operator"]; label: string }[] = [
@@ -621,6 +624,13 @@ interface FilterPanelProps {
   onRowOpClearAll: () => Promise<void>;
   totalRows: number;
   unfilteredRows: number | null;
+  savedViews: SavedView[];
+  currentViewState: ViewState;
+  onSaveView: (name: string) => void;
+  onApplyView: (view: SavedView) => void;
+  onUpdateView: (viewId: string) => void;
+  onDeleteView: (viewId: string) => void;
+  onRenameView: (viewId: string, newName: string) => void;
 }
 
 export function FilterPanel({
@@ -642,12 +652,19 @@ export function FilterPanel({
   onRowOpClearAll,
   totalRows,
   unfilteredRows,
+  savedViews,
+  currentViewState,
+  onSaveView,
+  onApplyView,
+  onUpdateView,
+  onDeleteView,
+  onRenameView,
 }: FilterPanelProps): React.ReactElement {
   const [draftRoot, setDraftRoot] = useState<DraftFilterGroup>(() =>
     convertToDraft(activeFilters)
   );
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
-  const [activeTab, setActiveTab] = useState<"filters" | "colops" | "rowops">("filters");
+  const [activeTab, setActiveTab] = useState<"filters" | "colops" | "rowops" | "views">("filters");
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -769,6 +786,19 @@ export function FilterPanel({
                 {rowOpsSteps.length}
               </Tag>
             )}
+            <Button
+              className="filter-panel-tab"
+              small
+              minimal
+              active={activeTab === "views"}
+              onClick={() => setActiveTab("views")}
+              text="Views"
+            />
+            {savedViews.length > 0 && activeTab !== "views" && (
+              <Tag minimal round className="filter-panel-tab-badge">
+                {savedViews.length}
+              </Tag>
+            )}
           </div>
         </div>
         <div className="filter-panel-header-right">
@@ -832,6 +862,16 @@ export function FilterPanel({
         totalRows={totalRows}
         unfilteredRows={unfilteredRows}
         visible={activeTab === "rowops"}
+      />
+      <ViewsPanel
+        visible={activeTab === "views"}
+        savedViews={savedViews}
+        currentViewState={currentViewState}
+        onSaveView={onSaveView}
+        onApplyView={onApplyView}
+        onUpdateView={onUpdateView}
+        onDeleteView={onDeleteView}
+        onRenameView={onRenameView}
       />
     </div>
   );

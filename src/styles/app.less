@@ -1936,12 +1936,13 @@ html, body, #root {
 
 // ── Column Ops panel ──
 
+// ── Column Ops panel — side-by-side layout ──
+
 .colops-body {
-  overflow-y: auto;
+  overflow: hidden;
   padding: 6px 10px;
   display: flex;
   flex-direction: column;
-  gap: 0;
   flex: 1;
   min-height: 0;
 }
@@ -1953,21 +1954,13 @@ html, body, #root {
   text-align: center;
 }
 
-// Top area: the form + status, doesn't scroll
-.colops-top {
-  flex-shrink: 0;
+// Side-by-side layout: config left, preview right
+.colops-layout {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-bottom: 8px;
-}
-
-// Main operation row — all controls inline, wrapping allowed
-.colops-op-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
 
   .bp4-input {
     box-shadow: none;
@@ -1984,56 +1977,84 @@ html, body, #root {
   }
 }
 
+// Left panel: configuration form
+.colops-config {
+  width: 300px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+// Labeled form field
+.colops-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  > label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #5c7080;
+    letter-spacing: 0.3px;
+    user-select: none;
+  }
+}
+
+// Horizontal sub-fields (e.g., group + separator side by side)
+.colops-field-row {
+  flex-direction: row;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.colops-field-half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  > label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #5c7080;
+    letter-spacing: 0.3px;
+    user-select: none;
+  }
+}
+
 .colops-col-select {
-  width: 160px;
-  flex-shrink: 0;
+  width: 100%;
 }
 
-.colops-op-select {
-  width: 150px;
-  flex-shrink: 0;
+.colops-target-col-select {
+  width: 100%;
 }
 
-.colops-inline-input {
-  width: 160px;
-  flex-shrink: 0;
+// Target mode radio group
+.colops-target-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .bp4-radio-group {
+    display: flex;
+    gap: 8px;
+  }
+
+  .bp4-radio {
+    margin-bottom: 0;
+    font-size: 12px;
+  }
 }
 
-.colops-group-input {
-  width: 70px;
-  flex-shrink: 0;
-}
-
-.colops-arrow-icon {
-  color: #8a9ba8;
-  flex-shrink: 0;
-}
-
-.colops-plus-icon {
-  color: #8a9ba8;
-  font-size: 13px;
-  font-weight: 600;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.colops-col-placeholder {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: #8a9ba8;
-  letter-spacing: 0.3px;
-  padding: 2px 6px;
-  background: #f0f4f7;
-  border-radius: 3px;
-  border: 1px solid #d8e1e8;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.colops-inline-checkbox {
+// Checkbox styling within fields
+.colops-checkbox {
   margin-bottom: 0 !important;
-  flex-shrink: 0;
   font-size: 12px;
 
   .bp4-control-indicator {
@@ -2041,67 +2062,9 @@ html, body, #root {
   }
 }
 
-.colops-apply-btn {
-  flex-shrink: 0;
-}
-
-.colops-target-select {
-  width: 110px;
-  flex-shrink: 0;
-}
-
-.colops-target-input {
-  width: 140px;
-  flex-shrink: 0;
-}
-
-.colops-target-col-select {
-  width: 140px;
-  flex-shrink: 0;
-}
-
-// Status row: scope badge + inline error
-.colops-status-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-// Live preview table
-.colops-preview {
-  margin-top: 2px;
-
-  .colops-preview-error {
-    font-size: 11px;
-    color: #c23030;
-  }
-
-  .colops-preview-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-    font-family: "SF Mono", "Menlo", "Monaco", monospace;
-
-    th {
-      text-align: left;
-      font-size: 10px;
-      text-transform: uppercase;
-      color: #5c7080;
-      padding: 2px 6px;
-      border-bottom: 1px solid #e1e8ed;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-    }
-
-    td {
-      padding: 2px 6px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 200px;
-      border-bottom: 1px solid #f0f4f7;
-    }
-  }
+// Scope badge row
+.colops-scope-row {
+  padding-top: 2px;
 }
 
 .colops-scope {
@@ -2112,7 +2075,6 @@ html, body, #root {
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 3px;
-  flex-shrink: 0;
 
   &.colops-scope-filtered {
     background: rgba(19, 124, 189, 0.08);
@@ -2125,6 +2087,20 @@ html, body, #root {
   }
 }
 
+// Apply button + history toggle
+.colops-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.colops-history-toggle {
+  font-size: 11px;
+  color: #5c7080;
+}
+
+// Success / error messages
 .colops-inline-success {
   display: inline-flex;
   align-items: center;
@@ -2152,17 +2128,16 @@ html, body, #root {
   white-space: nowrap;
 }
 
-// ── Step history ──
+// ── Collapsible history ──
 
-.colops-steps {
+.colops-history-expanded {
   border-top: 1px solid #e1e8ed;
   padding-top: 6px;
   margin-top: 2px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
-  min-height: 0;
+  max-height: 150px;
   overflow: hidden;
 }
 
@@ -2244,17 +2219,57 @@ html, body, #root {
   font-size: 12px;
 }
 
-.colops-step-undo {
-  opacity: 0;
-  transition: opacity 0.15s;
+// ── Preview panel (right side) ──
+
+.colops-preview-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  border-left: 1px solid #e1e8ed;
+  padding-left: 12px;
 }
 
-.colops-step-item:hover .colops-step-undo {
-  opacity: 0.7;
+.colops-preview-empty {
+  color: #8a9ba8;
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 16px;
+  align-self: center;
 }
 
-.colops-step-undo:hover {
-  opacity: 1 !important;
+.colops-preview-error {
+  font-size: 11px;
+  color: #c23030;
+}
+
+.colops-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+
+  th {
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: #5c7080;
+    padding: 4px 8px;
+    border-bottom: 1px solid #e1e8ed;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+
+  td {
+    padding: 4px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+    border-bottom: 1px solid #f0f4f7;
+  }
 }
 
 // ── Row Ops panel ──
@@ -3240,5 +3255,184 @@ html, body, #root {
 
 .column-clear-pivot-btn {
   color: #0d8050;
+}
+
+// ── Saved Views Panel ──
+
+.views-body {
+  overflow-y: auto;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.views-empty {
+  padding: 16px;
+  color: #8a9ba8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.views-top {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.views-op-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.views-name-input {
+  width: 220px;
+  flex-shrink: 0;
+
+  .bp4-input-group .bp4-input,
+  .bp4-input {
+    box-shadow: none;
+    border: 1px solid rgba(17, 20, 24, 0.2);
+    background: linear-gradient(180deg, hsla(0, 0%, 100%, 0.8), hsla(0, 0%, 100%, 0.0));
+
+    &:focus {
+      box-shadow: 0 0 0 1px #137cbd, 0 0 0 3px rgba(19, 124, 189, 0.15);
+      border-color: #137cbd;
+    }
+  }
+}
+
+.views-save-btn {
+  flex-shrink: 0;
+}
+
+.views-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.views-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(19, 124, 189, 0.08);
+  color: #137cbd;
+  flex-shrink: 0;
+}
+
+// ── Saved views list (mirrors rowops-steps) ──
+
+.views-steps {
+  border-top: 1px solid #e1e8ed;
+  padding-top: 6px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.views-steps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.views-steps-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #5c7080;
+  letter-spacing: 0.5px;
+}
+
+.views-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.views-step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.12s;
+  cursor: pointer;
+
+  &:hover {
+    background: #f0f4f7;
+  }
+}
+
+.views-step-number {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e1e8ed;
+  color: #5c7080;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.views-step-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #394b59;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.views-step-summary {
+  font-weight: 400;
+  color: #8a9ba8;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.views-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.views-rename-input {
+  flex: 1;
+  min-width: 0;
+
+  .bp4-input {
+    height: 22px;
+    font-size: 12px;
+    font-weight: 600;
+  }
 }
 

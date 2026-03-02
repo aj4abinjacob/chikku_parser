@@ -47,7 +47,7 @@ Context bridge exposing `window.api` (typed as `DbApi` in preload.ts). Key metho
 ### Key Directories
 
 - `app/` — Electron main process + preload
-- `src/components/` — React components (22 files)
+- `src/components/` — React components (23 files)
 - `src/hooks/` — `useChunkCache`, `usePivotCache`
 - `src/utils/` — `sqlBuilder.ts`, `colOpsSQL.ts`, `rowOpsSQL.ts`, `dateDetection.ts`
 - `src/types.ts` — All TypeScript interfaces
@@ -61,7 +61,7 @@ Electron 31, React 18, TypeScript 5 (strict, ES2020, CommonJS), DuckDB (in-memor
 ## Components
 
 ### App.tsx — Main Orchestrator
-- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, dialog states, `colOpsSteps`/`rowOpsSteps` with `undoStrategy`
+- State: `tables[]`, `activeTable`, `viewState`, `schema`, `resetKey`, dialog states, `colOpsSteps`/`rowOpsSteps` with `undoStrategy`, `savedViewsMap` (per-table saved views)
 - Hooks: `useChunkCache` (flat mode), `usePivotCache` (pivot mode, when `pivotConfig.groupColumns.length > 0`)
 - Key handlers: `loadFiles`, `handleDeleteTable`, `handleCombineExecute`, `handleDataOperation`, `handleSampleTable`, `handleCreateAggregateTable`, `handleCreatePivotTable`, `handleLookupMerge`, `handleColOpApply`, `handleColOpUndo`, `handleRowOpApply`, `handleRowOpUndo`
 - `handleColOpApply`: reads `params.targetMode` ("replace"|"new_column"|"existing_column") and `params.targetColumn`; "new_column" adds column via `ALTER TABLE ADD COLUMN`; promotes non-VARCHAR to VARCHAR for string ops; executes `UPDATE` scoped by filters; adaptive undo (per-step vs snapshot based on RAM)
@@ -73,11 +73,11 @@ Three sections: Tables (max 20%), Columns (flex), Operations (fixed bottom). Tab
 ### DataGrid.tsx — Virtualized Data Grid
 Virtual scrolling via `@tanstack/react-virtual`. Div-based layout. Dual-mode: flat (chunk cache) and pivot (tree with group/data rows). Cell selection, copy (TSV), multi-sort, column resize/reorder. `ROW_HEIGHT = 28`.
 
-### FilterPanel.tsx — Bottom Panel (Filters + Column Ops + Row Ops)
-Resizable (80-500px). Three tabs. Recursive AND/OR filter groups. Operators include CONTAINS (regex), IN (value picker). Draft state model with immutable updates.
+### FilterPanel.tsx — Bottom Panel (Filters + Column Ops + Row Ops + Views)
+Resizable (80-500px). Four tabs. Recursive AND/OR filter groups. Operators include CONTAINS (regex), IN (value picker). Draft state model with immutable updates. Views tab with badge count.
 
 ### ColumnOpsPanel.tsx — Column Ops Tab
-In-place UPDATE operations scoped by active filters. 9 ops: assign_value, find_replace, regex_extract, extract_numbers, trim, upper, lower, clear_null, prefix_suffix. **Target mode selector** (regex_extract only): "Source col" (replace), "New col", "Other col". **Live preview**: debounced (300ms) 3-sample before/after table, updates as inputs change. Adaptive undo (per-step/snapshot). Regex pattern picker integration.
+Side-by-side layout: left config panel (~300px, scrollable) with stacked form fields, right preview panel (flex). Operations grouped in `<optgroup>`: Text (Trim, UPPERCASE, lowercase), Search (Find & Replace, Regex Extract), Modify (Set Value, Prefix/Suffix, Extract Numbers, Clear to NULL). **Target mode** for all ops except clear_null: "Same column" (replace), "New column", "Existing column". **Live preview**: debounced (300ms) 5-sample Before/After table with empty state. **Collapsible history**: collapsed by default showing `History (N)` toggle, expands to show step list with undo/revert actions. Adaptive undo (per-step/snapshot). Regex pattern picker integration.
 
 ### DataOperationsDialog.tsx — Data Operations Modal
 16 operation types: regex_extract, trim, upper, lower, replace_regex, substring, custom_sql, create_column, delete_column, combine_columns, rename_column, sample_table, remove_duplicates, conditional_column, replace_empty_null, replace_sentinel_null. **Target mode selector** (extract ops only: regex_extract, substring, custom_sql): RadioGroup with "Replace source", "New column", "Existing column". All other ops replace source or use dedicated new-column input. Live preview. Generates `CREATE OR REPLACE TABLE ... AS SELECT` SQL.
@@ -97,6 +97,7 @@ In-place UPDATE operations scoped by active filters. 9 ops: assign_value, find_r
 - **RegexPatternPicker.tsx**: Inline pattern picker grouped by category
 - **RegexPatternManagerDialog.tsx**: Pattern CRUD + import/export
 - **RowOpsPanel.tsx**: Row ops (delete_filtered, keep_filtered, remove_empty, remove_duplicates) with independent undo
+- **ViewsPanel.tsx**: Saved Views tab — save/apply/update/rename/delete named ViewState snapshots per-table. In-memory only, no new tables created. Save form with summary, scrollable view list with hover-reveal actions, inline rename via double-click
 - **StatusBar.tsx**: Table name, row count, pivot status
 - **Toolbar.tsx**: Sidebar toggle (largely superseded by Sidebar)
 
@@ -110,7 +111,7 @@ Tree-based GroupNode cache. Lazy expand (sub-groups or data chunks). Returns `{ 
 
 ## Types (`src/types.ts`)
 
-Key types: `ColumnInfo`, `LoadedTable`, `ViewState`, `FilterGroup`/`FilterNode`/`FilterCondition` (recursive), `SortColumn`, `PivotGroupColumn`, `PivotViewConfig`, `PivotFlatRow`, `ColOpType`, `ColOpTargetMode` ("replace"|"new_column"|"existing_column"), `ColOpStep`, `RowOpType`, `RowOpStep`, `UndoStrategy`, `ColumnMapping`, `RegexPattern`, `FileFormat`, `ImportOptions`, `SheetInfo`. Helper functions: `isFilterGroup()`, `hasActiveFilters()`, `countConditions()`. Constants: `EXCEL_MAX_ROWS`, `EXCEL_MAX_COLS`.
+Key types: `ColumnInfo`, `LoadedTable`, `ViewState`, `FilterGroup`/`FilterNode`/`FilterCondition` (recursive), `SortColumn`, `PivotGroupColumn`, `PivotViewConfig`, `PivotFlatRow`, `ColOpType`, `ColOpTargetMode` ("replace"|"new_column"|"existing_column"), `ColOpStep`, `RowOpType`, `RowOpStep`, `UndoStrategy`, `ColumnMapping`, `RegexPattern`, `SavedView`, `FileFormat`, `ImportOptions`, `SheetInfo`. Helper functions: `isFilterGroup()`, `hasActiveFilters()`, `countConditions()`. Constants: `EXCEL_MAX_ROWS`, `EXCEL_MAX_COLS`.
 
 ## Utils
 
@@ -134,7 +135,7 @@ Key types: `ColumnInfo`, `LoadedTable`, `ViewState`, `FilterGroup`/`FilterNode`/
 - Column ops target modes (extract ops only): "replace" (UPDATE source), "new_column" (ALTER TABLE ADD + UPDATE), "existing_column" (UPDATE different col)
 - Data operations use `CREATE OR REPLACE TABLE ... AS SELECT` pattern
 - All filter/sort state lives in `ViewState`; chunk cache auto-resets on changes
-- CSS namespaces: `.colops-*`, `.rowops-*`, `.dg-*`, `.col-select-*`, `.regex-picker-*`, `.regex-manager-*`, `.pivot-toolbar-*`, `.filter-group-*`, `.date-conv-*`, `.merge-*`
+- CSS namespaces: `.colops-*`, `.rowops-*`, `.views-*`, `.dg-*`, `.col-select-*`, `.regex-picker-*`, `.regex-manager-*`, `.pivot-toolbar-*`, `.filter-group-*`, `.date-conv-*`, `.merge-*`
 
 ## Keyboard Shortcuts
 

@@ -151,5 +151,14 @@ export interface RegexPattern {
   isBuiltin: boolean;
 }
 
+export interface SavedView {
+  id: string;
+  name: string;
+  tableName: string;
+  viewState: ViewState;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const EXCEL_MAX_ROWS = 1_048_576;
 export const EXCEL_MAX_COLS = 16_384;

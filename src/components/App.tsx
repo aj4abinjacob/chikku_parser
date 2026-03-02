@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button } from "@blueprintjs/core";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn, PivotAggFunction, PivotGroupColumn } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, SheetInfo, hasActiveFilters, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn, PivotAggFunction, PivotGroupColumn, SavedView } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { FilterPanel } from "./FilterPanel";
@@ -111,6 +111,8 @@ export function App(): React.ReactElement {
     sortColumns: [],
     pivotConfig: null,
   });
+  const [savedViewsMap, setSavedViewsMap] = useState<Map<string, SavedView[]>>(new Map());
+  const [savedViewNextId, setSavedViewNextId] = useState(1);
 
   // Use refs so IPC callbacks always see latest state
   const tablesRef = useRef(tables);
@@ -400,6 +402,13 @@ export function App(): React.ReactElement {
     } catch (err) {
       console.error("Drop table error:", err);
     }
+    // Clean up saved views for the deleted table
+    setSavedViewsMap((prev) => {
+      if (!prev.has(tableName)) return prev;
+      const next = new Map(prev);
+      next.delete(tableName);
+      return next;
+    });
     setTables((prev) => {
       const remaining = prev.filter((t) => t.tableName !== tableName);
       if (activeTableRef.current === tableName) {
@@ -627,6 +636,72 @@ export function App(): React.ReactElement {
     setViewState((prev) => ({ ...prev, filters }));
     setResetKey((k) => k + 1);
   }, []);
+
+  // ── Saved Views callbacks ──
+
+  const handleSaveView = useCallback((name: string) => {
+    if (!activeTable) return;
+    const id = `view_${savedViewNextId}`;
+    setSavedViewNextId((n) => n + 1);
+    const now = Date.now();
+    const newView: SavedView = {
+      id,
+      name,
+      tableName: activeTable,
+      viewState: JSON.parse(JSON.stringify(viewState)),
+      createdAt: now,
+      updatedAt: now,
+    };
+    setSavedViewsMap((prev) => {
+      const next = new Map(prev);
+      const list = next.get(activeTable) || [];
+      next.set(activeTable, [...list, newView]);
+      return next;
+    });
+  }, [activeTable, viewState, savedViewNextId]);
+
+  const handleApplyView = useCallback((view: SavedView) => {
+    setViewState(JSON.parse(JSON.stringify(view.viewState)));
+    setResetKey((k) => k + 1);
+  }, []);
+
+  const handleUpdateView = useCallback((viewId: string) => {
+    if (!activeTable) return;
+    setSavedViewsMap((prev) => {
+      const next = new Map(prev);
+      const list = next.get(activeTable) || [];
+      next.set(activeTable, list.map((v) =>
+        v.id === viewId
+          ? { ...v, viewState: JSON.parse(JSON.stringify(viewState)), updatedAt: Date.now() }
+          : v
+      ));
+      return next;
+    });
+  }, [activeTable, viewState]);
+
+  const handleDeleteView = useCallback((viewId: string) => {
+    if (!activeTable) return;
+    setSavedViewsMap((prev) => {
+      const next = new Map(prev);
+      const list = next.get(activeTable) || [];
+      const filtered = list.filter((v) => v.id !== viewId);
+      if (filtered.length === 0) next.delete(activeTable);
+      else next.set(activeTable, filtered);
+      return next;
+    });
+  }, [activeTable]);
+
+  const handleRenameView = useCallback((viewId: string, newName: string) => {
+    if (!activeTable) return;
+    setSavedViewsMap((prev) => {
+      const next = new Map(prev);
+      const list = next.get(activeTable) || [];
+      next.set(activeTable, list.map((v) =>
+        v.id === viewId ? { ...v, name: newName, updatedAt: Date.now() } : v
+      ));
+      return next;
+    });
+  }, [activeTable]);
 
   // Data operation: run SQL to transform columns/rows
   const handleDataOperation = useCallback(
@@ -1286,6 +1361,13 @@ export function App(): React.ReactElement {
                       ? tables.find((t) => t.tableName === activeTable)?.rowCount ?? null
                       : null
                   }
+                  savedViews={activeTable ? savedViewsMap.get(activeTable) || [] : []}
+                  currentViewState={viewState}
+                  onSaveView={handleSaveView}
+                  onApplyView={handleApplyView}
+                  onUpdateView={handleUpdateView}
+                  onDeleteView={handleDeleteView}
+                  onRenameView={handleRenameView}
                 />
               )}
             </>
