@@ -247,22 +247,24 @@ export function DataGrid({
     rangeRef.current = null; // force ensureRange to re-fire
   }, [resetKey]);
 
-  // Calculate initial column widths when columns change
+  // Calculate column widths — preserve existing widths, only compute defaults for new columns
   useEffect(() => {
     if (columns.length === 0) return;
     const container = containerRef.current;
     if (!container) return;
     const firstColWidth = pivotMode ? PIVOT_GROUP_COL_WIDTH : 50;
     const availableWidth = container.clientWidth - firstColWidth;
-    const perCol = Math.max(150, Math.floor(availableWidth / columns.length));
-    const widths: Record<string, number> = {};
-    if (pivotMode) {
-      widths[PIVOT_GROUP_COL_KEY] = PIVOT_GROUP_COL_WIDTH;
-    }
-    for (const col of columns) {
-      widths[col] = perCol;
-    }
-    setColumnWidths(widths);
+    const defaultWidth = Math.max(150, Math.floor(availableWidth / columns.length));
+    setColumnWidths((prev) => {
+      const widths: Record<string, number> = {};
+      if (pivotMode) {
+        widths[PIVOT_GROUP_COL_KEY] = prev[PIVOT_GROUP_COL_KEY] ?? PIVOT_GROUP_COL_WIDTH;
+      }
+      for (const col of columns) {
+        widths[col] = prev[col] ?? defaultWidth;
+      }
+      return widths;
+    });
   }, [columns, pivotMode]);
 
   // Total width of all columns for horizontal scroll
@@ -375,6 +377,73 @@ export function DataGrid({
       document.body.style.userSelect = "none";
     },
     [columnWidths]
+  );
+
+  // Canvas context for text measurement (reused across calls)
+  const measureCtx = useRef<CanvasRenderingContext2D | null>(null);
+  // Track which columns are currently auto-fitted (double-click toggles)
+  const autoFittedCols = useRef<Set<string>>(new Set());
+
+  const handleResizeDoubleClick = useCallback(
+    (e: React.MouseEvent, col: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // If already auto-fitted, revert to default width
+      if (autoFittedCols.current.has(col)) {
+        autoFittedCols.current.delete(col);
+        const container = containerRef.current;
+        if (!container) return;
+        const firstColWidth = pivotMode ? PIVOT_GROUP_COL_WIDTH : 50;
+        const availableWidth = container.clientWidth - firstColWidth;
+        const defaultWidth = Math.max(150, Math.floor(availableWidth / columns.length));
+        setColumnWidths((prev) => ({ ...prev, [col]: defaultWidth }));
+        return;
+      }
+
+      // Lazily create a measurement canvas
+      if (!measureCtx.current) {
+        const canvas = document.createElement("canvas");
+        measureCtx.current = canvas.getContext("2d");
+      }
+      const ctx = measureCtx.current;
+      if (!ctx) return;
+
+      const CELL_PADDING = 24; // 12px left + 12px right
+      const HEADER_EXTRA = 30; // room for sort indicator + resize handle
+      const MIN_WIDTH = 50;
+
+      // Measure header text (bold)
+      ctx.font = 'bold 13px "SF Mono", Menlo, Monaco, monospace';
+      let maxWidth = ctx.measureText(col).width + CELL_PADDING + HEADER_EXTRA;
+
+      // Measure visible data cells
+      ctx.font = '13px "SF Mono", Menlo, Monaco, monospace';
+      const range = virtualizer.range;
+      if (range) {
+        for (let i = range.startIndex; i <= range.endIndex; i++) {
+          let value: any;
+          if (pivotMode && pivotFlatRows) {
+            const pRow = pivotFlatRows[i];
+            if (pRow?.type === "data" && pRow.data) value = pRow.data[col];
+            else if (pRow?.type === "group") continue;
+          } else {
+            const row = getRow(i);
+            if (row) value = row[col];
+          }
+          const text = formatCell(value);
+          if (text) {
+            const w = ctx.measureText(text).width + CELL_PADDING;
+            if (w > maxWidth) maxWidth = w;
+          }
+        }
+      }
+
+      const fitWidth = Math.max(MIN_WIDTH, Math.ceil(maxWidth));
+      autoFittedCols.current.add(col);
+      setColumnWidths((prev) => ({ ...prev, [col]: fitWidth }));
+    },
+    [virtualizer, getRow, pivotMode, pivotFlatRows, columns]
   );
 
   // ── Click-drag selection state ──
@@ -556,6 +625,7 @@ export function DataGrid({
                 <div
                   className="col-resize-handle"
                   onMouseDown={(e) => handleResizeStart(e, PIVOT_GROUP_COL_KEY)}
+                  onDoubleClick={(e) => handleResizeDoubleClick(e, PIVOT_GROUP_COL_KEY)}
                 />
               </div>
             ) : (
@@ -599,6 +669,7 @@ export function DataGrid({
                   <div
                     className="col-resize-handle"
                     onMouseDown={(e) => handleResizeStart(e, col)}
+                    onDoubleClick={(e) => handleResizeDoubleClick(e, col)}
                   />
                 </div>
               );
