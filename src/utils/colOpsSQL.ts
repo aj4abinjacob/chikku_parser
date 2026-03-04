@@ -59,8 +59,25 @@ export function buildColOpExpr(
       }
       return `regexp_extract(CAST(${col} AS VARCHAR), '${pattern}', ${groupIdx})`;
     }
-    case "extract_numbers":
-      return `regexp_extract(CAST(${col} AS VARCHAR), '(-?[0-9]+\\.?[0-9]*)', 1)`;
+    case "extract_numbers": {
+      const numMode = params.mode ?? "first";
+      const numType = params.numberType ?? "any";
+      // Pattern: integers only, floats only (must have decimal), or any number
+      const numPattern = numType === "integer"
+        ? "(-?[0-9]+)"
+        : numType === "float"
+          ? "(-?[0-9]+\\.[0-9]+)"
+          : "(-?[0-9]+\\.?[0-9]*)";
+      if (numMode === "all") {
+        const sep = (params.separator ?? ",").replace(/'/g, "''");
+        return `array_to_string(regexp_extract_all(CAST(${col} AS VARCHAR), '${numPattern}', 1), '${sep}')`;
+      }
+      const baseExpr = `regexp_extract(CAST(${col} AS VARCHAR), '${numPattern}', 1)`;
+      // Cast to numeric type if requested (TRY_CAST returns NULL on failure)
+      if (numType === "integer") return `TRY_CAST(${baseExpr} AS BIGINT)`;
+      if (numType === "float") return `TRY_CAST(${baseExpr} AS DOUBLE)`;
+      return baseExpr;
+    }
     case "trim":
       return `TRIM(CAST(${col} AS VARCHAR))`;
     case "upper":
@@ -123,8 +140,11 @@ export function buildStepDescription(
       return params.allMatches === "true"
         ? `Regex extract all matches from "${column}"${params.separator ? ` (sep: "${params.separator}")` : ""}${targetSuffix}`
         : `Regex extract from "${column}"${targetSuffix}`;
-    case "extract_numbers":
-      return `Extract numbers from "${column}"${targetSuffix}`;
+    case "extract_numbers": {
+      const modeLabel = params.mode === "all" ? "all numbers" : "first number";
+      const typeLabel = params.numberType === "integer" ? " (integer)" : params.numberType === "float" ? " (float)" : "";
+      return `Extract ${modeLabel}${typeLabel} from "${column}"${targetSuffix}`;
+    }
     case "trim":
       return `Trim "${column}"${targetSuffix}`;
     case "upper":

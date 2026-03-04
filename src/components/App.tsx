@@ -156,6 +156,7 @@ export function App(): React.ReactElement {
     viewState,
     schema,
     enabled: viewState.visibleColumns.length > 0 && pivotActive,
+    dataVersion,
   });
 
   // ── History helpers ──
@@ -1013,9 +1014,18 @@ export function App(): React.ReactElement {
         // Collect SQL statements for history
         const executedSql: string[] = [];
 
+        // Determine column type for new_column mode
+        // extract_numbers with integer/float in "first" mode produces numeric types
+        const extractNumType = opType === "extract_numbers" && params.mode !== "all"
+          ? params.numberType ?? "any"
+          : null;
+        const newColType = extractNumType === "integer" ? "BIGINT"
+          : extractNumType === "float" ? "DOUBLE"
+          : "VARCHAR";
+
         // For "new_column" mode, add the column first
         if (targetMode === "new_column" && targetColumn) {
-          const addColSql = `ALTER TABLE "${currentTable}" ADD COLUMN "${targetColumn}" VARCHAR`;
+          const addColSql = `ALTER TABLE "${currentTable}" ADD COLUMN "${targetColumn}" ${newColType}`;
           await window.api.exec(addColSql);
           executedSql.push(addColSql);
         }
@@ -1024,12 +1034,15 @@ export function App(): React.ReactElement {
         const STRING_OPS: Set<ColOpType> = new Set([
           "prefix_suffix", "find_replace", "regex_extract", "upper", "lower", "trim", "assign_value",
         ]);
-        if (STRING_OPS.has(opType)) {
+        // extract_numbers in "all" mode or "any" type also produces string output
+        const isStringOp = STRING_OPS.has(opType)
+          || (opType === "extract_numbers" && (params.mode === "all" || (params.numberType ?? "any") === "any"));
+        if (isStringOp) {
           // For "existing_column" mode, promote the target column; otherwise promote the source column
           const colToPromote = (targetMode === "existing_column" && targetColumn) ? targetColumn : column;
           const colInfo = schema.find((c) => c.column_name === colToPromote);
           const colType = colInfo?.column_type?.toUpperCase() ?? "";
-          // Skip promotion for new_column (already VARCHAR)
+          // Skip promotion for new_column (already set to correct type)
           if (targetMode !== "new_column" && colType && !colType.startsWith("VARCHAR") && colType !== "TEXT" && colType !== "STRING") {
             const alterSql = `ALTER TABLE "${currentTable}" ALTER COLUMN "${colToPromote}" TYPE VARCHAR`;
             await window.api.exec(alterSql);

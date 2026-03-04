@@ -48,7 +48,7 @@ const OP_GROUPS: { label: string; ops: { value: ColOpType; label: string }[] }[]
 const ALL_OPS = OP_GROUPS.flatMap((g) => g.ops);
 
 // Operations that need no extra params
-const NO_PARAM_OPS = new Set<ColOpType>(["trim", "upper", "lower", "clear_null", "extract_numbers"]);
+const NO_PARAM_OPS = new Set<ColOpType>(["trim", "upper", "lower", "clear_null"]);
 
 // Operations that should NOT show target mode (result is always NULL replacement)
 const NO_TARGET_OPS = new Set<ColOpType>(["clear_null"]);
@@ -99,6 +99,7 @@ export function ColumnOpsPanel({
   const [previews, setPreviews] = useState<Array<{ original: string; result: string }>>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [lastAppliedKey, setLastAppliedKey] = useState<string | null>(null);
   const configRef = useRef<HTMLDivElement>(null);
 
   // Notify parent to grow panel when config content changes
@@ -154,11 +155,15 @@ export function ColumnOpsPanel({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [activeTable, selectedColumn, opType, params, visible]);
+  }, [activeTable, selectedColumn, opType, params, visible, colOpsSteps.length]);
 
   const hasFilter = unfilteredRows !== null;
   const isFiltered = hasFilter && totalRows !== unfilteredRows;
   const showTargetMode = !NO_TARGET_OPS.has(opType);
+
+  // Track current config to detect changes since last apply
+  const currentConfigKey = JSON.stringify({ selectedColumn, opType, params, targetMode: showTargetMode ? targetMode : "replace", targetColumn: showTargetMode ? targetColumn : "" });
+  const isUnchangedSinceApply = lastAppliedKey === currentConfigKey;
 
   const handleApply = async () => {
     if (!selectedColumn || !activeTable) return;
@@ -174,6 +179,8 @@ export function ColumnOpsPanel({
       const appliedOp = ALL_OPS.find((o) => o.value === opType)?.label ?? opType;
       const fullParams = { ...params, targetMode: effectiveTargetMode, targetColumn: effectiveTargetCol };
       await onApply(opType, selectedColumn, fullParams);
+      // Mark this config as applied
+      setLastAppliedKey(currentConfigKey);
       // Show success flash
       const targetLabel = effectiveTargetMode === "new_column" ? ` → new "${effectiveTargetCol}"`
         : effectiveTargetMode === "existing_column" ? ` → "${effectiveTargetCol}"`
@@ -346,6 +353,45 @@ export function ColumnOpsPanel({
             </div>
           </>
         );
+      case "extract_numbers":
+        return (
+          <>
+            <div className="colops-field">
+              <label>Mode</label>
+              <RadioGroup
+                inline
+                selectedValue={params.mode ?? "first"}
+                onChange={(e) => updateParam("mode", (e.target as HTMLInputElement).value)}
+              >
+                <Radio label="First number" value="first" />
+                <Radio label="All numbers" value="all" />
+              </RadioGroup>
+            </div>
+            <div className="colops-field">
+              <label>Type</label>
+              <HTMLSelect
+                value={params.numberType ?? "any"}
+                onChange={(e) => updateParam("numberType", e.target.value)}
+                fill
+              >
+                <option value="any">Any number (text)</option>
+                <option value="integer">Integer</option>
+                <option value="float">Float</option>
+              </HTMLSelect>
+            </div>
+            {params.mode === "all" && (
+              <div className="colops-field">
+                <label>Separator</label>
+                <InputGroup
+                  value={params.separator ?? ","}
+                  onChange={(e) => updateParam("separator", e.target.value)}
+                  placeholder=","
+                  fill
+                />
+              </div>
+            )}
+          </>
+        );
       case "prefix_suffix":
         return (
           <>
@@ -377,7 +423,7 @@ export function ColumnOpsPanel({
   };
 
   const applyDisabled =
-    !selectedColumn || loading
+    !selectedColumn || loading || isUnchangedSinceApply
     || (showTargetMode && targetMode === "new_column" && (!targetColumn.trim() || columns.some((c) => c.column_name === targetColumn.trim())))
     || (showTargetMode && targetMode === "existing_column" && !targetColumn);
 

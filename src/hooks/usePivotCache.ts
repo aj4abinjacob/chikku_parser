@@ -27,6 +27,7 @@ interface UsePivotCacheArgs {
   viewState: ViewState;
   schema: ColumnInfo[];
   enabled: boolean;
+  dataVersion?: number;
 }
 
 interface UsePivotCacheReturn {
@@ -50,6 +51,7 @@ export function usePivotCache({
   viewState,
   schema,
   enabled,
+  dataVersion = 0,
 }: UsePivotCacheArgs): UsePivotCacheReturn {
   const [rootNodes, setRootNodes] = useState<GroupNode[]>([]);
   const [grandTotals, setGrandTotals] = useState<Record<string, any> | null>(null);
@@ -92,7 +94,7 @@ export function usePivotCache({
   const filtersKey = JSON.stringify(viewState.filters);
   const groupColumnsKey = JSON.stringify(groupColumns);
   const visibleColumnsKey = [...viewState.visibleColumns].sort().join(",");
-  const cacheKey = `${tableName}|${enabled}|${groupColumnsKey}|${filtersKey}|${visibleColumnsKey}|${defaultAggFn}`;
+  const cacheKey = `${tableName}|${enabled}|${groupColumnsKey}|${filtersKey}|${visibleColumnsKey}|${defaultAggFn}|${dataVersion}`;
   const prevCacheKeyRef = useRef("");
 
   // Reset on structural cache key change
