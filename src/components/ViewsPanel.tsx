@@ -14,7 +14,6 @@ import {
 } from "../types";
 
 interface ViewsPanelProps {
-  visible: boolean;
   savedViews: SavedView[];
   currentViewState: ViewState;
   schema: ColumnInfo[];
@@ -35,37 +34,98 @@ function viewSummary(vs: ViewState): string {
   return parts.join(" \u00B7 ");
 }
 
-/** Render a filter tree as readable text lines */
-function renderFilterLines(group: FilterGroup, depth: number = 0): React.ReactNode[] {
-  const lines: React.ReactNode[] = [];
+/** Render compact inline detail for a view's filters/sorts/pivot */
+function renderInlineDetail(vs: ViewState): React.ReactNode {
+  const sections: React.ReactNode[] = [];
+
+  // Filters
+  if (hasActiveFilters(vs.filters)) {
+    sections.push(
+      <div key="filters" className="views-inline-detail-section">
+        <span className="views-inline-detail-label">Filters:</span>
+        {renderFilterPills(vs.filters)}
+      </div>
+    );
+  }
+
+  // Sorts
+  if (vs.sortColumns.length > 0) {
+    sections.push(
+      <div key="sorts" className="views-inline-detail-section">
+        <span className="views-inline-detail-label">Sort:</span>
+        {vs.sortColumns.map((s, i) => (
+          <span key={i}>
+            <span className="views-inline-detail-col">{s.column}</span>
+            {" "}<span className="views-inline-detail-dir">{s.direction}</span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  // Pivot
+  if (vs.pivotConfig && vs.pivotConfig.groupColumns.length > 0) {
+    sections.push(
+      <div key="pivot" className="views-inline-detail-section">
+        <span className="views-inline-detail-label">Pivot:</span>
+        {vs.pivotConfig.groupColumns.map((g, i) => (
+          <span key={i}>
+            <span className="views-inline-detail-col">{g.column}</span>
+            {" "}<span className="views-inline-detail-dir">{g.direction}</span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  // Hidden columns
+  if (vs.columnOrder.length > 0 && vs.visibleColumns.length < vs.columnOrder.length) {
+    sections.push(
+      <div key="cols" className="views-inline-detail-section">
+        <span className="views-inline-detail-label">Columns:</span>
+        <span className="views-inline-detail-none">
+          {vs.visibleColumns.length} of {vs.columnOrder.length} visible
+        </span>
+      </div>
+    );
+  }
+
+  if (sections.length === 0) {
+    return <div className="views-inline-detail"><span className="views-inline-detail-none">Default view (no filters/sorts)</span></div>;
+  }
+
+  return <div className="views-inline-detail">{sections}</div>;
+}
+
+function renderFilterPills(group: FilterGroup): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
   group.children.forEach((child: FilterNode, i: number) => {
     if (i > 0) {
-      lines.push(
-        <span key={`logic-${depth}-${i}`} className="views-detail-logic">{group.logic}</span>
+      nodes.push(
+        <span key={`logic-${i}`} className="views-inline-detail-logic">{group.logic}</span>
       );
     }
     if (isFilterGroup(child)) {
-      lines.push(
-        <span key={`group-${depth}-${i}`} className="views-detail-filter">
+      nodes.push(
+        <span key={`group-${i}`}>
           ({child.logic} group: {countConditions(child)} condition{countConditions(child) !== 1 ? "s" : ""})
         </span>
       );
     } else {
       const needsValue = child.operator !== "IS NULL" && child.operator !== "IS NOT NULL";
-      lines.push(
-        <span key={`cond-${depth}-${i}`} className="views-detail-filter">
-          <span className="views-detail-col">{child.column}</span>
+      nodes.push(
+        <span key={`cond-${i}`}>
+          <span className="views-inline-detail-col">{child.column}</span>
           {" "}{child.operator.toLowerCase()}
-          {needsValue && <> <span className="views-detail-val">{child.value}</span></>}
+          {needsValue && <> <span className="views-inline-detail-val">{child.value}</span></>}
         </span>
       );
     }
   });
-  return lines;
+  return nodes;
 }
 
 export function ViewsPanel({
-  visible,
   savedViews,
   currentViewState,
   schema,
@@ -78,7 +138,7 @@ export function ViewsPanel({
   const [newName, setNewName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [expandedViewId, setExpandedViewId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const schemaColumnNames = useMemo(
@@ -133,194 +193,127 @@ export function ViewsPanel({
     if (e.key === "Escape") setRenamingId(null);
   };
 
-  const selectedView = savedViews.find((v) => v.id === selectedViewId) || null;
-  const detailState = selectedView?.viewState ?? null;
-
   return (
-    <div className="views-body" style={{ display: visible ? "flex" : "none" }}>
-      <div className="views-layout">
-        {/* Left: save form + view list */}
-        <div className="views-left">
-          <div className="views-top">
-            <div className="views-op-row">
-              <InputGroup
-                className="views-name-input"
-                placeholder="Name this view..."
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
-                leftIcon="bookmark"
-                small
-              />
-              <Button
-                className="views-save-btn"
-                icon="floppy-disk"
-                text="Save"
-                intent={Intent.PRIMARY}
-                small
-                disabled={!newName.trim()}
-                onClick={handleSave}
-              />
-            </div>
-            <div className="views-status-row">
-              <span className="views-scope">
-                <Icon icon="eye-open" iconSize={10} />
-                {viewSummary(currentViewState)}
-              </span>
-            </div>
-          </div>
-
-          {savedViews.length > 0 ? (
-            <div className="views-steps">
-              <div className="views-steps-header">
-                <span className="views-steps-title">Saved Views ({savedViews.length})</span>
-              </div>
-              <div className="views-step-list">
-                {savedViews.map((view, idx) => {
-                  const missing = getMissingColumns(view);
-                  const isCompatible = missing.length === 0;
-                  const itemClass = `views-step-item ${selectedViewId === view.id ? "views-step-selected" : ""} ${!isCompatible ? "views-step-incompatible" : ""}`;
-                  const row = (
-                    <div
-                      key={view.id}
-                      className={itemClass}
-                      onClick={() => setSelectedViewId(selectedViewId === view.id ? null : view.id)}
-                    >
-                      <span className="views-step-number">{idx + 1}</span>
-                      {renamingId === view.id ? (
-                        <InputGroup
-                          inputRef={renameInputRef}
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={handleRenameKeyDown}
-                          onBlur={handleRenameCommit}
-                          small
-                          className="views-rename-input"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <span
-                          className="views-step-desc"
-                          onDoubleClick={(e) => { e.stopPropagation(); handleRenameStart(view); }}
-                          title="Double-click to rename"
-                        >
-                          {view.name}
-                          <span className="views-step-origin">{view.tableName}</span>
-                        </span>
-                      )}
-                      <div className="views-step-actions">
-                        <Button
-                          small
-                          minimal
-                          text="Apply"
-                          intent={Intent.PRIMARY}
-                          disabled={!isCompatible}
-                          onClick={(e) => { e.stopPropagation(); onApplyView(view); }}
-                        />
-                        <Button
-                          small
-                          minimal
-                          text="Update"
-                          onClick={(e) => { e.stopPropagation(); onUpdateView(view.id); }}
-                        />
-                        <Button
-                          small
-                          minimal
-                          icon="trash"
-                          intent={Intent.DANGER}
-                          onClick={(e) => { e.stopPropagation(); onDeleteView(view.id); }}
-                        />
-                      </div>
-                    </div>
-                  );
-                  if (!isCompatible) {
-                    return (
-                      <Tooltip2
-                        key={view.id}
-                        content={`Missing columns: ${missing.join(", ")}`}
-                        placement="top"
-                        minimal
-                      >
-                        {row}
-                      </Tooltip2>
-                    );
-                  }
-                  return row;
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="views-empty">No saved views yet</div>
-          )}
+    <div className="views-body">
+      <div className="views-top">
+        <div className="views-op-row">
+          <InputGroup
+            className="views-name-input"
+            placeholder="Name this view..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+            leftIcon="bookmark"
+            small
+          />
+          <Button
+            className="views-save-btn"
+            icon="floppy-disk"
+            text="Save"
+            intent={Intent.PRIMARY}
+            small
+            disabled={!newName.trim()}
+            onClick={handleSave}
+          />
         </div>
-
-        {/* Right: detail panel showing what's in the selected view */}
-        <div className="views-right">
-          {detailState ? (
-            <div className="views-detail">
-              <div className="views-detail-header">{selectedView!.name}</div>
-
-              {/* Filters */}
-              <div className="views-detail-section">
-                <span className="views-detail-label">Filters</span>
-                {hasActiveFilters(detailState.filters) ? (
-                  <div className="views-detail-items">
-                    {renderFilterLines(detailState.filters)}
-                  </div>
-                ) : (
-                  <span className="views-detail-none">None</span>
-                )}
-              </div>
-
-              {/* Sorts */}
-              <div className="views-detail-section">
-                <span className="views-detail-label">Sorts</span>
-                {detailState.sortColumns.length > 0 ? (
-                  <div className="views-detail-items">
-                    {detailState.sortColumns.map((s, i) => (
-                      <span key={i} className="views-detail-sort">
-                        <span className="views-detail-col">{s.column}</span>
-                        {" "}<span className="views-detail-dir">{s.direction}</span>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="views-detail-none">None</span>
-                )}
-              </div>
-
-              {/* Pivot */}
-              {detailState.pivotConfig && detailState.pivotConfig.groupColumns.length > 0 && (
-                <div className="views-detail-section">
-                  <span className="views-detail-label">Pivot</span>
-                  <div className="views-detail-items">
-                    {detailState.pivotConfig.groupColumns.map((g, i) => (
-                      <span key={i} className="views-detail-sort">
-                        <span className="views-detail-col">{g.column}</span>
-                        {" "}<span className="views-detail-dir">{g.direction}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Hidden columns */}
-              {detailState.columnOrder.length > 0 && detailState.visibleColumns.length < detailState.columnOrder.length && (
-                <div className="views-detail-section">
-                  <span className="views-detail-label">Columns</span>
-                  <span className="views-detail-none">
-                    {detailState.visibleColumns.length} of {detailState.columnOrder.length} visible
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="views-detail-empty">
-              Select a view to see its details
-            </div>
-          )}
+        <div className="views-status-row">
+          <span className="views-scope">
+            <Icon icon="eye-open" iconSize={10} />
+            {viewSummary(currentViewState)}
+          </span>
         </div>
       </div>
+
+      {savedViews.length > 0 ? (
+        <div className="views-steps">
+          <div className="views-steps-header">
+            <span className="views-steps-title">Saved Views ({savedViews.length})</span>
+          </div>
+          <div className="views-step-list">
+            {savedViews.map((view, idx) => {
+              const missing = getMissingColumns(view);
+              const isCompatible = missing.length === 0;
+              const isExpanded = expandedViewId === view.id;
+              const itemClass = `views-step-item ${isExpanded ? "views-step-selected" : ""} ${!isCompatible ? "views-step-incompatible" : ""}`;
+              const row = (
+                <div key={view.id}>
+                  <div
+                    className={itemClass}
+                    onDoubleClick={() => setExpandedViewId(isExpanded ? null : view.id)}
+                    title="Double-click to show details"
+                  >
+                    <span className="views-step-number">{idx + 1}</span>
+                    {renamingId === view.id ? (
+                      <InputGroup
+                        inputRef={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={handleRenameKeyDown}
+                        onBlur={handleRenameCommit}
+                        small
+                        className="views-rename-input"
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="views-step-desc">
+                        {view.name}
+                        <span className="views-step-origin">{view.tableName}</span>
+                      </span>
+                    )}
+                    <div className="views-step-actions">
+                      <Button
+                        small
+                        minimal
+                        icon="edit"
+                        onClick={(e) => { e.stopPropagation(); handleRenameStart(view); }}
+                        title="Rename"
+                      />
+                      <Button
+                        small
+                        minimal
+                        text="Apply"
+                        intent={Intent.PRIMARY}
+                        disabled={!isCompatible}
+                        onClick={(e) => { e.stopPropagation(); onApplyView(view); }}
+                      />
+                      <Button
+                        small
+                        minimal
+                        text="Update"
+                        onClick={(e) => { e.stopPropagation(); onUpdateView(view.id); }}
+                      />
+                      <Button
+                        small
+                        minimal
+                        icon="trash"
+                        intent={Intent.DANGER}
+                        onClick={(e) => { e.stopPropagation(); onDeleteView(view.id); }}
+                      />
+                    </div>
+                  </div>
+                  {isExpanded && renderInlineDetail(view.viewState)}
+                </div>
+              );
+              if (!isCompatible) {
+                return (
+                  <Tooltip2
+                    key={view.id}
+                    content={`Missing columns: ${missing.join(", ")}`}
+                    placement="top"
+                    minimal
+                  >
+                    {row}
+                  </Tooltip2>
+                );
+              }
+              return row;
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="views-empty">No saved views yet</div>
+      )}
     </div>
   );
 }

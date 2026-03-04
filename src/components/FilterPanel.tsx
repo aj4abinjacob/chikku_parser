@@ -666,9 +666,12 @@ export function FilterPanel({
     convertToDraft(activeFilters)
   );
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
-  const [activeTab, setActiveTab] = useState<"filters" | "colops" | "rowops" | "views">("filters");
-  const [showSaveAsView, setShowSaveAsView] = useState(false);
-  const [saveViewName, setSaveViewName] = useState("");
+  const [activeTab, setActiveTab] = useState<"filters" | "colops" | "rowops">("filters");
+  const [splitPercent, setSplitPercent] = useState(55);
+  const isSplitDragging = useRef(false);
+  const splitStartX = useRef(0);
+  const splitStartPercent = useRef(0);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -724,6 +727,45 @@ export function FilterPanel({
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  // ── Horizontal split drag handlers ──
+  const onSplitMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isSplitDragging.current = true;
+      splitStartX.current = e.clientX;
+      splitStartPercent.current = splitPercent;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [splitPercent]
+  );
+
+  useEffect(() => {
+    const onSplitMove = (e: MouseEvent) => {
+      if (!isSplitDragging.current || !splitContainerRef.current) return;
+      const containerWidth = splitContainerRef.current.getBoundingClientRect().width;
+      if (containerWidth === 0) return;
+      const deltaX = e.clientX - splitStartX.current;
+      const deltaPct = (deltaX / containerWidth) * 100;
+      const newPct = Math.min(80, Math.max(30, splitStartPercent.current + deltaPct));
+      setSplitPercent(newPct);
+    };
+
+    const onSplitUp = () => {
+      if (!isSplitDragging.current) return;
+      isSplitDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", onSplitMove);
+    document.addEventListener("mouseup", onSplitUp);
+    return () => {
+      document.removeEventListener("mousemove", onSplitMove);
+      document.removeEventListener("mouseup", onSplitUp);
     };
   }, []);
 
@@ -800,109 +842,62 @@ export function FilterPanel({
                 {rowOpsSteps.length}
               </Tag>
             )}
-            <Button
-              className="filter-panel-tab"
-              small
-              minimal
-              active={activeTab === "views"}
-              onClick={() => setActiveTab("views")}
-              text="Views"
-            />
-            {savedViews.length > 0 && activeTab !== "views" && (
-              <Tag minimal round className="filter-panel-tab-badge">
-                {savedViews.length}
-              </Tag>
-            )}
           </div>
-        </div>
-        <div className="filter-panel-header-right">
-          {activeTab === "filters" && (
+          {activeTab === "filters" && draftHasContent && (
             <>
-              {showSaveAsView ? (
-                <div className="filter-save-view-inline">
-                  <InputGroup
-                    placeholder="View name..."
-                    value={saveViewName}
-                    onChange={(e) => setSaveViewName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && saveViewName.trim()) {
-                        onSaveView(saveViewName.trim());
-                        setSaveViewName("");
-                        setShowSaveAsView(false);
-                      }
-                      if (e.key === "Escape") {
-                        setSaveViewName("");
-                        setShowSaveAsView(false);
-                      }
-                    }}
-                    small
-                    autoFocus
-                  />
-                  <Button
-                    icon="tick"
-                    small
-                    minimal
-                    intent={Intent.SUCCESS}
-                    disabled={!saveViewName.trim()}
-                    onClick={() => {
-                      onSaveView(saveViewName.trim());
-                      setSaveViewName("");
-                      setShowSaveAsView(false);
-                    }}
-                  />
-                  <Button
-                    icon="cross"
-                    small
-                    minimal
-                    onClick={() => {
-                      setSaveViewName("");
-                      setShowSaveAsView(false);
-                    }}
-                  />
-                </div>
-              ) : (
-                <Button
-                  icon="bookmark"
-                  text="Save as View"
-                  small
-                  minimal
-                  onClick={() => setShowSaveAsView(true)}
-                />
-              )}
-              {draftHasContent && (
-                <>
-                  <Button
-                    icon="cross"
-                    text="Clear All"
-                    small
-                    minimal
-                    onClick={clearAll}
-                  />
-                  <Button
-                    intent={Intent.PRIMARY}
-                    text="Apply Filters"
-                    small
-                    onClick={applyFilters}
-                    disabled={!isDirty && hasActiveFilters(activeFilters)}
-                  />
-                </>
-              )}
+              <span className="filter-panel-tab-separator" />
+              <Button
+                intent={Intent.PRIMARY}
+                text="Apply Filters"
+                small
+                onClick={applyFilters}
+                disabled={!isDirty && hasActiveFilters(activeFilters)}
+              />
+              <Button
+                icon="cross"
+                text="Clear"
+                small
+                minimal
+                onClick={clearAll}
+              />
             </>
           )}
         </div>
+        <div className="filter-panel-header-right" />
       </div>
 
-      {/* Both tabs always mounted to preserve state; toggle visibility */}
-      <div className="filter-panel-body" style={{ display: activeTab === "filters" ? "flex" : "none" }}>
-        <FilterGroupRenderer
-          group={draftRoot}
-          columns={columns}
-          activeTable={activeTable}
-          depth={0}
-          isRoot={true}
-          onUpdateRoot={handleUpdateRoot}
-          onApply={applyFilters}
-        />
+      {/* Filters + Views side-by-side */}
+      <div
+        className="filter-views-split"
+        ref={splitContainerRef}
+        style={{ display: activeTab === "filters" ? "flex" : "none" }}
+      >
+        <div className="filter-views-left" style={{ width: `${splitPercent}%` }}>
+          <FilterGroupRenderer
+            group={draftRoot}
+            columns={columns}
+            activeTable={activeTable}
+            depth={0}
+            isRoot={true}
+            onUpdateRoot={handleUpdateRoot}
+            onApply={applyFilters}
+          />
+        </div>
+        <div className="filter-views-divider" onMouseDown={onSplitMouseDown}>
+          <div className="filter-views-divider-grip" />
+        </div>
+        <div className="filter-views-right" style={{ width: `${100 - splitPercent}%` }}>
+          <ViewsPanel
+            savedViews={savedViews}
+            currentViewState={currentViewState}
+            schema={columns}
+            onSaveView={onSaveView}
+            onApplyView={onApplyView}
+            onUpdateView={onUpdateView}
+            onDeleteView={onDeleteView}
+            onRenameView={onRenameView}
+          />
+        </div>
       </div>
       <ColumnOpsPanel
         columns={columns}
@@ -932,17 +927,6 @@ export function FilterPanel({
         totalRows={totalRows}
         unfilteredRows={unfilteredRows}
         visible={activeTab === "rowops"}
-      />
-      <ViewsPanel
-        visible={activeTab === "views"}
-        savedViews={savedViews}
-        currentViewState={currentViewState}
-        schema={columns}
-        onSaveView={onSaveView}
-        onApplyView={onApplyView}
-        onUpdateView={onUpdateView}
-        onDeleteView={onDeleteView}
-        onRenameView={onRenameView}
       />
     </div>
   );

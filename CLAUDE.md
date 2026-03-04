@@ -73,8 +73,8 @@ Three sections: Tables (max 20%), Columns (flex), Operations (fixed bottom). Tab
 ### DataGrid.tsx — Virtualized Data Grid
 Virtual scrolling via `@tanstack/react-virtual`. Div-based layout. Dual-mode: flat (chunk cache) and pivot (tree with group/data rows). Cell selection, copy (TSV), multi-sort, column resize/reorder. `ROW_HEIGHT = 28`.
 
-### FilterPanel.tsx — Bottom Panel (Filters + Column Ops + Row Ops + Views)
-Resizable (80-500px). Four tabs. Recursive AND/OR filter groups. Operators include CONTAINS (regex), IN (value picker). Draft state model with immutable updates. Views tab with badge count. "Save as View" inline button in Filters tab header for quick view creation.
+### FilterPanel.tsx — Bottom Panel (Filters + Column Ops + Row Ops)
+Resizable (80-500px). Three tabs. Recursive AND/OR filter groups. Operators include CONTAINS (regex), IN (value picker). Draft state model with immutable updates. Filters tab has side-by-side layout: filter builder (left) + compact ViewsPanel (right, 260px fixed).
 
 ### ColumnOpsPanel.tsx — Column Ops Tab
 Three-column layout: left config panel (~300px, scrollable) with stacked form fields, center preview panel (flex), right history panel (~240px). Operations grouped in `<optgroup>`: Text (Trim, UPPERCASE, lowercase), Search (Find & Replace, Regex Extract), Modify (Set Value, Prefix/Suffix, Extract Numbers, Clear to NULL). **Extract Numbers** has mode (First/All), type (Any/Integer/Float), separator (for All mode, default empty); Integer/Float use TRY_CAST for numeric output, "all" mode joins with separator as text. **Target mode** for all ops except clear_null: "Same column" (replace), "New column", "Existing column". **Live preview**: debounced (300ms) 5-sample Before/After table with empty state. **History panel**: always visible, shows "No steps yet" when empty, step list with undo/revert actions when populated. Adaptive undo (per-step/snapshot). Regex pattern picker integration.
@@ -97,7 +97,7 @@ Three-column layout: left config panel (~300px, scrollable) with stacked form fi
 - **RegexPatternPicker.tsx**: Inline pattern picker grouped by category
 - **RegexPatternManagerDialog.tsx**: Pattern CRUD + import/export
 - **RowOpsPanel.tsx**: Row ops (delete_filtered, keep_filtered, remove_empty, remove_duplicates) with independent undo. **remove_empty** has All/Any mode toggle (like pandas `dropna(how=...)`).
-- **ViewsPanel.tsx**: Saved Views tab — save/apply/update/rename/delete named ViewState snapshots globally (visible across all tables). In-memory only, no new tables created. Save form with summary, scrollable view list with hover-reveal actions, inline rename via double-click. Compatibility checking: views with filter columns missing from current table schema are greyed out with disabled Apply button and tooltip showing missing columns. Origin badge shows source table name.
+- **ViewsPanel.tsx**: Compact views panel embedded in Filters tab right side — save/apply/update/rename/delete named ViewState snapshots globally (visible across all tables). In-memory only, no new tables created. Save form with summary, scrollable view list with actions, inline rename via double-click. Compatibility checking: views with filter columns missing from current table schema are greyed out with disabled Apply button and tooltip showing missing columns. Origin badge shows source table name.
 - **HistoryDialog.tsx**: Global operation history — two-panel modal (table list + timeline). Per-table history of all col ops, row ops, data ops with SQL replay-based revert. Save/load history as JSON. Generated tables viewable but non-revertible.
 - **StatusBar.tsx**: Table name, row count, pivot status
 - **Toolbar.tsx**: Sidebar toggle (largely superseded by Sidebar)
