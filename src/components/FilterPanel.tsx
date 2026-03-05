@@ -886,9 +886,10 @@ export function FilterPanel({
               />
             </>
           )}
-          {activeTab === "filters" && (
+        </div>
+        <div className="filter-panel-header-right">
+          {activeTab === "filters" && hasActiveFilters(activeFilters) && (
             <>
-              <span className="filter-panel-tab-separator" />
               {showSaveInput ? (
                 <div className="filter-panel-save-inline">
                   <InputGroup
@@ -930,7 +931,6 @@ export function FilterPanel({
             </>
           )}
         </div>
-        <div className="filter-panel-header-right" />
       </div>
 
       {/* Filters + Views side-by-side */}
