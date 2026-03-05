@@ -72,7 +72,7 @@ export function usePivotCache({
   // fall back to COUNT_DISTINCT (or COUNT/MIN/MAX which work on any type)
   const getAggConfigs = useCallback(
     (aggFn: string) => {
-      const UNIVERSAL_FNS = new Set(["COUNT", "COUNT_DISTINCT", "MIN", "MAX"]);
+      const UNIVERSAL_FNS = new Set(["COUNT", "COUNT_DISTINCT", "COUNT_NULL", "MIN", "MAX"]);
       const configs: { column: string; fn: string }[] = [];
       for (const col of schema) {
         if (NUMERIC_RE.test(col.column_type) || UNIVERSAL_FNS.has(aggFn)) {

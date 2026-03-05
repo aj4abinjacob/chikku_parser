@@ -20,6 +20,7 @@ const ALL_FUNCTIONS = [
   "AVG",
   "COUNT",
   "COUNT DISTINCT",
+  "COUNT NULL",
   "MEDIAN",
   "STDDEV",
 ] as const;
@@ -27,7 +28,7 @@ const ALL_FUNCTIONS = [
 type AggFunc = (typeof ALL_FUNCTIONS)[number];
 
 /** Functions available for non-numeric columns */
-const NON_NUMERIC_FUNCTIONS: Set<AggFunc> = new Set(["COUNT", "COUNT DISTINCT", "MIN", "MAX"]);
+const NON_NUMERIC_FUNCTIONS: Set<AggFunc> = new Set(["COUNT", "COUNT DISTINCT", "COUNT NULL", "MIN", "MAX"]);
 
 function isNumeric(colType: string): boolean {
   return NUMERIC_RE.test(colType);
@@ -151,6 +152,9 @@ export function AggregateDialog({
         if (fn === "COUNT DISTINCT") {
           expr = `COUNT(DISTINCT ${ident})`;
           alias = `COUNT_DISTINCT(${col})`;
+        } else if (fn === "COUNT NULL") {
+          expr = `SUM(CASE WHEN ${ident} IS NULL THEN 1 ELSE 0 END)`;
+          alias = `COUNT_NULL(${col})`;
         } else {
           expr = `${fn}(${ident})`;
           alias = `${fn}(${col})`;
@@ -269,7 +273,7 @@ export function AggregateDialog({
                     <span className="aggregate-col-name">{col.column_name}</span>
                     <span className="aggregate-col-type">
                       {col.column_type}
-                      {!numeric && <span className="aggregate-col-hint"> (count/min/max only)</span>}
+                      {!numeric && <span className="aggregate-col-hint"> (count/count null/min/max only)</span>}
                     </span>
                   </div>
                 );

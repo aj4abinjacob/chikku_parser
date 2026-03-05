@@ -262,6 +262,8 @@ export function buildPivotGroupQuery(
     const alias = `"${agg.column.replace(/"/g, '""')}:${agg.fn}"`;
     if (agg.fn === "COUNT_DISTINCT") {
       selects.push(`COUNT(DISTINCT ${col}) AS ${alias}`);
+    } else if (agg.fn === "COUNT_NULL") {
+      selects.push(`SUM(CASE WHEN ${col} IS NULL THEN 1 ELSE 0 END) AS ${alias}`);
     } else {
       selects.push(`${agg.fn}(${col}) AS ${alias}`);
     }
@@ -296,6 +298,8 @@ export function buildPivotGrandTotalQuery(
     const alias = `"${agg.column.replace(/"/g, '""')}:${agg.fn}"`;
     if (agg.fn === "COUNT_DISTINCT") {
       selects.push(`COUNT(DISTINCT ${col}) AS ${alias}`);
+    } else if (agg.fn === "COUNT_NULL") {
+      selects.push(`SUM(CASE WHEN ${col} IS NULL THEN 1 ELSE 0 END) AS ${alias}`);
     } else {
       selects.push(`${agg.fn}(${col}) AS ${alias}`);
     }

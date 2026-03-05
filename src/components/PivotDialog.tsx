@@ -18,6 +18,7 @@ const NUMERIC_RE =
 const AGG_FUNCTIONS = [
   "SUM",
   "COUNT",
+  "COUNT NULL",
   "AVG",
   "MIN",
   "MAX",
@@ -31,6 +32,7 @@ type AggFunc = (typeof AGG_FUNCTIONS)[number];
 /** Functions that work on non-numeric columns */
 const NON_NUMERIC_FUNCTIONS: Set<AggFunc> = new Set([
   "COUNT",
+  "COUNT NULL",
   "MIN",
   "MAX",
   "FIRST",
@@ -214,7 +216,11 @@ export function PivotDialog({
       const colInfo = schema.find((c) => c.column_name === col);
       const colIsNumeric = colInfo ? isNumeric(colInfo.column_type) : false;
       if (!colIsNumeric && !NON_NUMERIC_FUNCTIONS.has(aggFunction)) continue;
-      usingParts.push(`${aggFunction}(${escapeIdent(col)})`);
+      if (aggFunction === "COUNT NULL") {
+        usingParts.push(`SUM(CASE WHEN ${escapeIdent(col)} IS NULL THEN 1 ELSE 0 END)`);
+      } else {
+        usingParts.push(`${aggFunction}(${escapeIdent(col)})`);
+      }
     }
 
     if (usingParts.length === 0) return null;

@@ -6,6 +6,7 @@ const AGG_OPTIONS: { value: PivotAggFunction; label: string }[] = [
   { value: "SUM", label: "SUM" },
   { value: "COUNT", label: "COUNT" },
   { value: "COUNT_DISTINCT", label: "COUNT DISTINCT" },
+  { value: "COUNT_NULL", label: "COUNT NULL" },
   { value: "AVG", label: "AVG" },
   { value: "MIN", label: "MIN" },
   { value: "MAX", label: "MAX" },
