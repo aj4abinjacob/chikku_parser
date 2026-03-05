@@ -683,6 +683,7 @@ export function FilterPanel({
   const [splitPercent, setSplitPercent] = useState(55);
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
+  const lastSavedViewSnapshot = useRef<string | null>(null);
   const isSplitDragging = useRef(false);
   const splitStartX = useRef(0);
   const splitStartPercent = useRef(0);
@@ -696,6 +697,11 @@ export function FilterPanel({
   useEffect(() => {
     setDraftRoot(convertToDraft(activeFilters));
   }, [activeFilters]);
+
+  // Reset saved-view snapshot when switching tables
+  useEffect(() => {
+    lastSavedViewSnapshot.current = null;
+  }, [activeTable]);
 
   // Header + resize handle take ~36px; content gets the rest
   const PANEL_CHROME_HEIGHT = 42;
@@ -806,6 +812,7 @@ export function FilterPanel({
     const trimmed = saveViewName.trim();
     if (!trimmed) return;
     onSaveView(trimmed);
+    lastSavedViewSnapshot.current = JSON.stringify(currentViewState);
     setSaveViewName("");
     setShowSaveInput(false);
   };
@@ -816,6 +823,9 @@ export function FilterPanel({
 
   const activeCount = countConditions(activeFilters);
   const draftHasContent = draftRoot.children.length > 0;
+  const viewStateMatchesLastSave =
+    lastSavedViewSnapshot.current !== null &&
+    lastSavedViewSnapshot.current === JSON.stringify(currentViewState);
 
   return (
     <div className="filter-panel" style={{ height: panelHeight }}>
@@ -888,7 +898,7 @@ export function FilterPanel({
           )}
         </div>
         <div className="filter-panel-header-right">
-          {activeTab === "filters" && hasActiveFilters(activeFilters) && (
+          {activeTab === "filters" && hasActiveFilters(activeFilters) && !viewStateMatchesLastSave && (
             <>
               {showSaveInput ? (
                 <div className="filter-panel-save-inline">
