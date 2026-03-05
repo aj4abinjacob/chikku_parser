@@ -68,15 +68,19 @@ export function usePivotCache({
   const defaultAggFn = pivotConfig?.defaultAggFunction ?? "SUM";
 
   // Build aggregate configs from schema
+  // Numeric columns use the selected agg function; non-numeric columns
+  // fall back to COUNT_DISTINCT (or COUNT/MIN/MAX which work on any type)
   const getAggConfigs = useCallback(
     (aggFn: string) => {
+      const UNIVERSAL_FNS = new Set(["COUNT", "COUNT_DISTINCT", "MIN", "MAX"]);
       const configs: { column: string; fn: string }[] = [];
       for (const col of schema) {
-        if (aggFn === "COUNT_DISTINCT") {
-          // COUNT DISTINCT applies to all columns
+        if (NUMERIC_RE.test(col.column_type) || UNIVERSAL_FNS.has(aggFn)) {
+          // Numeric columns support all agg functions; all columns support COUNT/MIN/MAX
           configs.push({ column: col.column_name, fn: aggFn });
-        } else if (NUMERIC_RE.test(col.column_type)) {
-          configs.push({ column: col.column_name, fn: aggFn });
+        } else {
+          // Non-numeric columns fall back to COUNT_DISTINCT for numeric-only aggs
+          configs.push({ column: col.column_name, fn: "COUNT_DISTINCT" });
         }
       }
       return configs;
