@@ -12,6 +12,7 @@ import {
 } from "@blueprintjs/core";
 import { ColumnInfo, ColOpType, ColOpStep, UndoStrategy, FilterGroup, ColOpTargetMode } from "../types";
 import { buildColOpExpr } from "../utils/colOpsSQL";
+import { buildFilterGroupClause } from "../utils/sqlBuilder";
 import { RegexPatternPicker } from "./RegexPatternPicker";
 import { RegexPatternManagerDialog } from "./RegexPatternManagerDialog";
 import { SearchableColumnSelect } from "./SearchableColumnSelect";
@@ -144,7 +145,9 @@ export function ColumnOpsPanel({
 
     const timer = setTimeout(async () => {
       try {
-        const sql = `SELECT DISTINCT CAST("${selectedColumn}" AS VARCHAR) AS "original", CAST(${expr} AS VARCHAR) AS "result" FROM "${activeTable}" WHERE "${selectedColumn}" IS NOT NULL LIMIT 5`;
+        const filterClause = buildFilterGroupClause(activeFilters);
+        const whereConditions = [`"${selectedColumn}" IS NOT NULL`, ...(filterClause ? [filterClause] : [])];
+        const sql = `SELECT DISTINCT CAST("${selectedColumn}" AS VARCHAR) AS "original", CAST(${expr} AS VARCHAR) AS "result" FROM "${activeTable}" WHERE ${whereConditions.join(" AND ")} LIMIT 5`;
         const rows = await window.api.query(sql);
         setPreviews(rows.map((r: any) => ({ original: String(r.original ?? ""), result: String(r.result ?? "") })));
         setPreviewError(null);
@@ -154,7 +157,7 @@ export function ColumnOpsPanel({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [activeTable, selectedColumn, opType, params, visible, colOpsSteps.length]);
+  }, [activeTable, selectedColumn, opType, params, visible, colOpsSteps.length, activeFilters]);
 
   const hasFilter = unfilteredRows !== null;
   const isFiltered = hasFilter && totalRows !== unfilteredRows;
