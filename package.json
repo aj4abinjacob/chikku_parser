@@ -1,6 +1,6 @@
 {
   "name": "chikku-data-combiner",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Desktop app for viewing, combining, and transforming CSV data",
   "main": "dist/main.bundle.js",
   "scripts": {
@@ -111,7 +111,11 @@
         "role": "Viewer"
       }
     ],
+    "publish": {
+      "provider": "github"
+    },
     "mac": {
+      "identity": null,
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg",
