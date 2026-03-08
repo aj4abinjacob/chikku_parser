@@ -87,7 +87,7 @@ Three-column layout: left config panel (~300px, scrollable) with stacked form fi
 - **CombineDialog.tsx**: Column mapping modal for UNION ALL with auto VARCHAR cast
 - **AggregateDialog.tsx**: Aggregate stats (SUM/MIN/MAX/AVG/COUNT/MEDIAN/STDDEV), optional Group By, materializes as `aggregate_N`
 - **PivotDialog.tsx**: DuckDB native `PIVOT` syntax, materializes as `pivot_N`
-- **PivotToolbar.tsx**: Controls above DataGrid when pivot active (expand/collapse, grand total, agg function)
+- **PivotToolbar.tsx**: Controls above DataGrid when pivot active (expand/collapse, grand total, agg function). Default agg is LIST VALUES (unique values via `STRING_AGG(DISTINCT)`). Group row cells support selection, tooltip, and clipboard.
 - **LookupMergeDialog.tsx**: LEFT/INNER JOIN with composite keys, duplicate/NULL key detection, column conflict resolution
 - **DateConversionDialog.tsx**: Format detection (ISO/numeric/text-month), `TRY_STRPTIME`/`strftime` conversion
 - **ExcelSheetPickerDialog.tsx**: Multi-sheet import picker

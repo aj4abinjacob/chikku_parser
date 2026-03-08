@@ -94,6 +94,22 @@ export function usePivotCache({
     return se ? se.direction : gc.direction;
   };
 
+  // Helper: find the first sort column that targets an aggregate (non-group column)
+  const groupColumnNames = new Set(groupColumns.map((gc) => gc.column));
+  const getAggSortEntry = () => {
+    const entry = viewState.sortColumns.find((sc) => !groupColumnNames.has(sc.column));
+    if (!entry) return undefined;
+    // Determine the aggregate function used for this column
+    const colInfo = schema.find((c) => c.column_name === entry.column);
+    const UNIVERSAL_FNS = new Set(["COUNT", "COUNT_DISTINCT", "COUNT_NULL", "MIN", "MAX", "LIST"]);
+    let fn = defaultAggFn;
+    if (colInfo && !NUMERIC_RE.test(colInfo.column_type) && !UNIVERSAL_FNS.has(defaultAggFn)) {
+      fn = "COUNT_DISTINCT";
+    }
+    const aggKey = `${entry.column}:${fn}`;
+    return { column: entry.column, fn, direction: entry.direction, aggKey };
+  };
+
   // Structural cache key (excludes sort — sort changes are handled separately)
   const filtersKey = JSON.stringify(viewState.filters);
   const groupColumnsKey = JSON.stringify(groupColumns);
@@ -120,21 +136,39 @@ export function usePivotCache({
     if (rootNodesRef.current.length > 0) {
       generationRef.current += 1;
 
+      const aggSort = getAggSortEntry();
+
       const clearAndSort = (nodes: GroupNode[], depth: number) => {
-        // Re-sort this level if the group column has a sort entry
+        // Re-sort this level
         if (depth < groupColumns.length) {
-          const dir = getEffectiveGroupDir(groupColumns[depth]);
-          nodes.sort((a, b) => {
-            const va = a.value;
-            const vb = b.value;
-            if (va == null && vb == null) return 0;
-            if (va == null) return 1;
-            if (vb == null) return -1;
-            const cmp = typeof va === "number" && typeof vb === "number"
-              ? va - vb
-              : String(va).localeCompare(String(vb));
-            return dir === "ASC" ? cmp : -cmp;
-          });
+          if (aggSort) {
+            // Sort group rows by their aggregate value
+            const { aggKey, direction: aggDir } = aggSort;
+            nodes.sort((a, b) => {
+              const va = a.aggregates[aggKey];
+              const vb = b.aggregates[aggKey];
+              if (va == null && vb == null) return 0;
+              if (va == null) return 1;
+              if (vb == null) return -1;
+              const cmp = typeof va === "number" && typeof vb === "number"
+                ? va - vb
+                : String(va).localeCompare(String(vb));
+              return aggDir === "ASC" ? cmp : -cmp;
+            });
+          } else {
+            const dir = getEffectiveGroupDir(groupColumns[depth]);
+            nodes.sort((a, b) => {
+              const va = a.value;
+              const vb = b.value;
+              if (va == null && vb == null) return 0;
+              if (va == null) return 1;
+              if (vb == null) return -1;
+              const cmp = typeof va === "number" && typeof vb === "number"
+                ? va - vb
+                : String(va).localeCompare(String(vb));
+              return dir === "ASC" ? cmp : -cmp;
+            });
+          }
         }
 
         for (const node of nodes) {
@@ -169,13 +203,15 @@ export function usePivotCache({
       try {
         const firstGroup = groupColumns[0];
         const effectiveDir = getEffectiveGroupDir(firstGroup);
+        const aggSortEntry = getAggSortEntry();
         const sql = buildPivotGroupQuery(
           tableName,
           firstGroup.column,
           [],
           aggConfigs,
           viewState.filters,
-          effectiveDir
+          effectiveDir,
+          aggSortEntry ? { column: aggSortEntry.column, fn: aggSortEntry.fn, direction: aggSortEntry.direction } : undefined
         );
         const rows = await window.api.query(sql);
         if (generationRef.current !== gen) return;
@@ -262,13 +298,15 @@ export function usePivotCache({
         // Load sub-groups
         const nextGroup = groupColumns[depthIndex + 1];
         const effectiveDir = getEffectiveGroupDir(nextGroup);
+        const aggSortEntry = getAggSortEntry();
         const sql = buildPivotGroupQuery(
           tableName,
           nextGroup.column,
           parentPath,
           aggConfigs,
           viewState.filters,
-          effectiveDir
+          effectiveDir,
+          aggSortEntry ? { column: aggSortEntry.column, fn: aggSortEntry.fn, direction: aggSortEntry.direction } : undefined
         );
         try {
           const rows = await window.api.query(sql);

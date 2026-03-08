@@ -252,7 +252,8 @@ export function buildPivotGroupQuery(
   parentPath: { column: string; value: any }[],
   aggConfigs: { column: string; fn: string }[],
   filters: FilterGroup,
-  direction: "ASC" | "DESC"
+  direction: "ASC" | "DESC",
+  orderByAgg?: { column: string; fn: string; direction: "ASC" | "DESC" }
 ): string {
   const gcol = escapeIdent(groupColumn);
   const selects = [`${gcol}`, `COUNT(*) AS __count`];
@@ -280,7 +281,14 @@ export function buildPivotGroupQuery(
   if (parentClause) whereParts.push(parentClause);
   if (whereParts.length > 0) sql += ` WHERE ${whereParts.join(" AND ")}`;
 
-  sql += ` GROUP BY ${gcol} ORDER BY ${gcol} ${direction}`;
+  sql += ` GROUP BY ${gcol}`;
+
+  if (orderByAgg) {
+    const aggAlias = `"${orderByAgg.column.replace(/"/g, '""')}:${orderByAgg.fn}"`;
+    sql += ` ORDER BY ${aggAlias} ${orderByAgg.direction}`;
+  } else {
+    sql += ` ORDER BY ${gcol} ${direction}`;
+  }
 
   return sql;
 }

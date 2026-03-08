@@ -628,7 +628,7 @@ export function DataGrid({
           <div className="dg-header">
             {pivotMode ? (
               <div className="dg-cell dg-pivot-group-header" style={{ width: groupColWidth }}>
-                <span className="dg-header-text">Group</span>
+                <span className="dg-header-text">Group By</span>
                 <div
                   className="col-resize-handle"
                   onMouseDown={(e) => handleResizeStart(e, PIVOT_GROUP_COL_KEY)}
