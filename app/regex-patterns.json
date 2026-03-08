@@ -128,6 +128,14 @@
     "isBuiltin": true
   },
   {
+    "id": "builtin-homedepot-item",
+    "title": "Home Depot Item ID",
+    "pattern": "homedepot\\.com/p/[^/]*/([0-9]+)",
+    "description": "Extracts Home Depot item ID from URLs like /p/Product-Name/306248639",
+    "category": "Product Codes",
+    "isBuiltin": true
+  },
+  {
     "id": "builtin-bestbuy-sku",
     "title": "Best Buy SKU",
     "pattern": "bestbuy\\.com/site/.+?/([0-9]+)\\.p",
