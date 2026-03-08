@@ -54,6 +54,9 @@ const NO_PARAM_OPS = new Set<ColOpType>(["trim", "upper", "lower", "clear_null"]
 // Operations that should NOT show target mode (result is always NULL replacement)
 const NO_TARGET_OPS = new Set<ColOpType>(["clear_null"]);
 
+// Operations that should NOT show "Existing column" option
+const NO_EXISTING_TARGET_OPS = new Set<ColOpType>(["assign_value"]);
+
 interface ColumnOpsPanelProps {
   columns: ColumnInfo[];
   activeTable: string | null;
@@ -162,6 +165,7 @@ export function ColumnOpsPanel({
   const hasFilter = unfilteredRows !== null;
   const isFiltered = hasFilter && totalRows !== unfilteredRows;
   const showTargetMode = !NO_TARGET_OPS.has(opType);
+  const hideExistingTarget = NO_EXISTING_TARGET_OPS.has(opType);
 
   // Track current config to detect changes since last apply
   const currentConfigKey = JSON.stringify({ selectedColumn, opType, params, targetMode: showTargetMode ? targetMode : "replace", targetColumn: showTargetMode ? targetColumn : "" });
@@ -454,8 +458,13 @@ export function ColumnOpsPanel({
             <HTMLSelect
               value={opType}
               onChange={(e) => {
-                setOpType(e.target.value as ColOpType);
+                const newOp = e.target.value as ColOpType;
+                setOpType(newOp);
                 setParams({});
+                if (NO_EXISTING_TARGET_OPS.has(newOp) && targetMode === "existing_column") {
+                  setTargetMode("replace");
+                  setTargetColumn("");
+                }
               }}
               fill
             >
@@ -488,7 +497,7 @@ export function ColumnOpsPanel({
                 >
                   <Radio label="Same column" value="replace" />
                   <Radio label="New column" value="new_column" />
-                  <Radio label="Existing column" value="existing_column" />
+                  {!hideExistingTarget && <Radio label="Existing column" value="existing_column" />}
                 </RadioGroup>
                 {targetMode === "new_column" && (
                   <InputGroup
