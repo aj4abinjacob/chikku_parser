@@ -30,7 +30,7 @@
     "electron",
     "duckdb"
   ],
-  "author": "Abin Jacob",
+  "author": "Abin Jacob <aj4abinjacob@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "@blueprintjs/core": "^4.20.2",
