@@ -137,7 +137,7 @@ Key types: `ColumnInfo`, `LoadedTable` (with optional `importOptions`), `ViewSta
 - Data operations use `CREATE OR REPLACE TABLE ... AS SELECT` pattern
 - All filter/sort state lives in `ViewState`; chunk cache auto-resets on changes
 - CSS namespaces: `.colops-*`, `.rowops-*`, `.views-*`, `.dg-*`, `.col-select-*`, `.regex-picker-*`, `.regex-manager-*`, `.pivot-toolbar-*`, `.filter-group-*`, `.date-conv-*`, `.merge-*`, `.ghist-*`
-- Dark mode: `.dark-theme` + `.bp4-dark` classes on `app-container` and `body`; preference stored in `localStorage("theme")`; toggled via View > Dark Mode menu (Cmd+Shift+D); dark overrides at end of `app.less` using Less variables (`@dark-bg-*`, `@dark-border-*`, `@dark-text-*`)
+- Dark mode: `.dark-theme` + `.bp4-dark` classes on `app-container` and `body`; preference stored in `localStorage("theme")`; toggled via View > Dark Mode menu (Cmd+Shift+D); dark overrides at end of `app.less` using Less variables (`@dark-bg-*`, `@dark-border-*`, `@dark-text-*`, `@dark-accent*`, `@dark-success*`, `@dark-warning*`, `@dark-error*`, `@dark-purple*`, `@dark-depth-N-bg`). Accent colors use brighter values than light theme for contrast; semantic colors (success=teal-green, error=coral, warning=amber) chosen for color-blind accessibility.
 
 ## Keyboard Shortcuts
 

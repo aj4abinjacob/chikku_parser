@@ -4073,6 +4073,34 @@ html, body, #root {
 @dark-text-3: #8a9ba8;    // muted text
 @dark-text-4: #5c7080;    // disabled/subtle text
 
+// Dark accent palette — brighter colors with proper contrast on dark backgrounds
+// Primary blue (WCAG AA on #1c2127 bg)
+@dark-accent: #4c9aff;
+@dark-accent-bg-subtle: rgba(76, 154, 255, 0.10);
+@dark-accent-bg: rgba(76, 154, 255, 0.18);
+@dark-accent-bg-strong: rgba(76, 154, 255, 0.28);
+@dark-accent-border: rgba(76, 154, 255, 0.40);
+// Success / pivot — teal-green (distinguishable for protanopia/deuteranopia)
+@dark-success: #3dcc91;
+@dark-success-bg: rgba(61, 204, 145, 0.14);
+@dark-success-bg-strong: rgba(61, 204, 145, 0.22);
+@dark-success-border: rgba(61, 204, 145, 0.35);
+// Warning — warm amber (distinct from red and green for CVD)
+@dark-warning: #ffb366;
+@dark-warning-bg: rgba(255, 179, 102, 0.12);
+// Error — softer coral-red, clearly visible
+@dark-error: #f97066;
+@dark-error-bg: rgba(249, 112, 102, 0.14);
+@dark-error-border: rgba(249, 112, 102, 0.28);
+// Purple — lighter for dark backgrounds
+@dark-purple: #a78bfa;
+@dark-purple-bg: rgba(167, 139, 250, 0.12);
+// Nested filter depth colors — higher opacity for visibility, luminance-varied
+@dark-depth-0-bg: rgba(76, 154, 255, 0.10);
+@dark-depth-1-bg: rgba(167, 139, 250, 0.10);
+@dark-depth-2-bg: rgba(255, 179, 102, 0.10);
+@dark-depth-3-bg: rgba(61, 204, 145, 0.10);
+
 // Root background
 html.dark-theme,
 html.dark-theme body,
@@ -4206,21 +4234,21 @@ html.dark-theme #root {
     border-bottom-color: @dark-border-2;
 
     &:hover .dg-cell {
-      background: rgba(19, 124, 189, 0.1);
+      background: @dark-accent-bg-subtle;
     }
 
     &:hover .dg-cell.cell-selected {
-      background: rgba(19, 124, 189, 0.25);
+      background: @dark-accent-bg-strong;
     }
   }
 
   .dg-cell.cell-selected {
-    background: rgba(19, 124, 189, 0.2);
-    outline-color: rgba(19, 124, 189, 0.5);
+    background: @dark-accent-bg;
+    outline-color: @dark-accent-border;
   }
 
   .dg-cell.column-dragging {
-    background: rgba(19, 124, 189, 0.12);
+    background: @dark-accent-bg-subtle;
   }
 
   .dg-cell.loading-cell {
@@ -4242,7 +4270,7 @@ html.dark-theme #root {
     }
 
     &.active {
-      background: rgba(19, 124, 189, 0.12);
+      background: @dark-accent-bg;
     }
   }
 
@@ -4291,19 +4319,19 @@ html.dark-theme #root {
   }
 
   .filter-group.filter-group-nested {
-    background: rgba(19, 124, 189, 0.06);
+    background: @dark-depth-0-bg;
   }
 
   .filter-group-nested[data-depth="1"] {
-    background: rgba(113, 87, 217, 0.06);
+    background: @dark-depth-1-bg;
   }
 
   .filter-group-nested[data-depth="2"] {
-    background: rgba(217, 130, 43, 0.06);
+    background: @dark-depth-2-bg;
   }
 
   .filter-group-nested[data-depth="3"] {
-    background: rgba(15, 153, 96, 0.06);
+    background: @dark-depth-3-bg;
   }
 
   .filter-views-divider-grip {
@@ -4412,7 +4440,7 @@ html.dark-theme #root {
   }
 
   .colops-inline-error {
-    color: #ff7373;
+    color: @dark-error;
   }
 
   // ── Row ops panel ──
@@ -4473,7 +4501,7 @@ html.dark-theme #root {
   }
 
   .rowops-inline-error {
-    color: #ff7373;
+    color: @dark-error;
   }
 
   // ── Preview tables (shared pattern) ──
@@ -4485,9 +4513,9 @@ html.dark-theme #root {
     }
 
     .op-preview-error {
-      background: rgba(255, 0, 0, 0.1);
-      border-color: rgba(255, 0, 0, 0.2);
-      color: #ff7373;
+      background: @dark-error-bg;
+      border-color: @dark-error-border;
+      color: @dark-error;
     }
 
     .op-preview-table {
@@ -4529,7 +4557,7 @@ html.dark-theme #root {
     }
 
     &.active {
-      box-shadow: 0 2px 8px rgba(19, 124, 189, 0.15);
+      box-shadow: 0 2px 8px @dark-accent-bg;
     }
 
     .combine-mapping-index {
@@ -4706,8 +4734,8 @@ html.dark-theme #root {
 
   // ── Pivot ──
   .pivot-toolbar {
-    background: rgba(15, 153, 96, 0.12);
-    border-bottom-color: rgba(15, 153, 96, 0.3);
+    background: @dark-success-bg;
+    border-bottom-color: @dark-success-border;
   }
 
   .pivot-toolbar-exit {
@@ -4754,7 +4782,7 @@ html.dark-theme #root {
   }
 
   .pivot-breadcrumb-item {
-    background: rgba(13, 128, 80, 0.15);
+    background: @dark-success-bg;
   }
 
   .pivot-distinct-preview {
@@ -4803,7 +4831,7 @@ html.dark-theme #root {
 
   .regex-picker-item {
     &:hover {
-      background: rgba(19, 124, 189, 0.1);
+      background: @dark-accent-bg-subtle;
     }
   }
 
@@ -4952,7 +4980,7 @@ html.dark-theme #root {
 
   .views-inline-detail {
     color: @dark-text-2;
-    background: rgba(19, 124, 189, 0.06);
+    background: @dark-accent-bg-subtle;
   }
 
   .views-inline-detail-label {
@@ -4970,7 +4998,7 @@ html.dark-theme #root {
 
   .ghist-table-item {
     &:hover {
-      background-color: rgba(19, 124, 189, 0.1);
+      background-color: @dark-accent-bg-subtle;
     }
   }
 
@@ -5075,6 +5103,98 @@ html.dark-theme #root {
     &:hover {
       background: @dark-text-3;
     }
+  }
+
+  // ── BlueprintJS accent overrides for dark mode ──
+  // Focus rings — use brighter blue
+  .bp4-input:focus,
+  .bp4-html-select select:focus {
+    box-shadow: 0 0 0 1px @dark-accent, 0 0 0 3px rgba(76, 154, 255, 0.2);
+    border-color: @dark-accent;
+  }
+
+  // Active tab indicator
+  .bp4-tab[aria-selected="true"],
+  .bp4-tab:not([aria-disabled="true"]):hover {
+    color: @dark-accent;
+  }
+
+  .bp4-tab-indicator-wrapper .bp4-tab-indicator {
+    background-color: @dark-accent;
+  }
+
+  // Primary button — ensure it's visible and not washed-out
+  .bp4-button.bp4-intent-primary {
+    background-color: @dark-accent;
+
+    &:hover {
+      background-color: #3d8bd5;
+    }
+
+    &:active {
+      background-color: #2e7cc0;
+    }
+  }
+
+  // Link-like text colors
+  a,
+  .bp4-button.bp4-minimal.bp4-intent-primary {
+    color: @dark-accent;
+  }
+
+  // Success intent — use teal-green
+  .bp4-button.bp4-intent-success {
+    background-color: @dark-success;
+
+    &:hover {
+      background-color: #2fb87e;
+    }
+  }
+
+  // Danger/error intent — use softer coral
+  .bp4-button.bp4-intent-danger {
+    background-color: @dark-error;
+
+    &:hover {
+      background-color: #e8605a;
+    }
+  }
+
+  // Tag accent colors
+  .bp4-tag.bp4-intent-primary {
+    background-color: @dark-accent;
+  }
+
+  .bp4-tag.bp4-intent-success {
+    background-color: @dark-success;
+  }
+
+  .bp4-tag.bp4-intent-danger {
+    background-color: @dark-error;
+  }
+
+  .bp4-tag.bp4-intent-warning {
+    background-color: @dark-warning;
+  }
+
+  // Checkbox/radio accent
+  .bp4-control input:checked ~ .bp4-control-indicator {
+    background-color: @dark-accent;
+  }
+
+  // Switch accent
+  .bp4-control.bp4-switch input:checked ~ .bp4-control-indicator {
+    background-color: @dark-accent;
+  }
+
+  // Progress bar
+  .bp4-progress-bar .bp4-progress-meter {
+    background-color: @dark-accent;
+  }
+
+  // Spinner
+  .bp4-spinner .bp4-spinner-head {
+    stroke: @dark-accent;
   }
 }
 
