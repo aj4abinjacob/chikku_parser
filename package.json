@@ -77,8 +77,12 @@
       "buildResources": "res"
     },
     "files": [
-      "dist/**/*",
-      "node_modules"
+      "dist/main.bundle.js",
+      "dist/preload.bundle.js",
+      "dist/renderer.bundle.js",
+      "dist/index.html",
+      "dist/favicon.svg",
+      "dist/**/*.{woff,woff2,ttf,eot}"
     ],
     "fileAssociations": [
       {
