@@ -1,6 +1,6 @@
 {
   "name": "chikku-parser",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Desktop app for viewing, combining, and transforming CSV data",
   "main": "dist/main.bundle.js",
   "scripts": {
