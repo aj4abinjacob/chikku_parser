@@ -6,6 +6,7 @@ interface StatusBarProps {
   unfilteredRows: number | null;
   activeTable: string | null;
   pivotConfig?: PivotViewConfig | null;
+  groupCount: number;
   filterPanelOpen: boolean;
   onToggleFilterPanel: () => void;
   activeFilterCount: number;
@@ -17,6 +18,7 @@ export function StatusBar({
   unfilteredRows,
   activeTable,
   pivotConfig,
+  groupCount,
   filterPanelOpen,
   onToggleFilterPanel,
   activeFilterCount,
@@ -27,6 +29,8 @@ export function StatusBar({
     ? `${totalRows.toLocaleString()} of ${unfilteredRows!.toLocaleString()} rows`
     : `${totalRows.toLocaleString()} rows`;
 
+  const groupDisplay = groupCount > 0 ? ` | ${groupCount.toLocaleString()} groups` : "";
+
   const pivotDisplay =
     pivotConfig && pivotConfig.groupColumns.length > 0
       ? ` | Grouped by: ${pivotConfig.groupColumns.map((gc) => gc.column).join(" > ")}`
@@ -36,7 +40,7 @@ export function StatusBar({
     <div className="status-bar">
       <span className="status-bar-rows" style={{ marginLeft: "auto" }}>
         {activeTable
-          ? `${rowsDisplay}${pivotDisplay}`
+          ? `${rowsDisplay}${groupDisplay}${pivotDisplay}`
           : "No table selected"}
       </span>
       {activeTable && (

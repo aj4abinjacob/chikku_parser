@@ -148,6 +148,7 @@ export function App(): React.ReactElement {
     flatRows: pivotFlatRows,
     grandTotals: pivotGrandTotals,
     loading: pivotLoading,
+    groupCount: pivotGroupCount,
     toggleExpand: pivotToggleExpand,
     expandAll: pivotExpandAll,
     collapseAll: pivotCollapseAll,
@@ -1656,6 +1657,7 @@ export function App(): React.ReactElement {
         }
         activeTable={activeTable}
         pivotConfig={viewState.pivotConfig}
+        groupCount={pivotActive ? pivotGroupCount : 0}
         filterPanelOpen={filterPanelOpen}
         onToggleFilterPanel={() => setFilterPanelOpen((v) => !v)}
         activeFilterCount={countConditions(viewState.filters)}

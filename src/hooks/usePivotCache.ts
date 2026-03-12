@@ -34,6 +34,7 @@ interface UsePivotCacheReturn {
   flatRows: PivotFlatRow[];
   grandTotals: Record<string, any> | null;
   loading: boolean;
+  groupCount: number;
   toggleExpand: (rowKey: string) => void;
   expandAll: () => void;
   collapseAll: () => void;
@@ -534,6 +535,7 @@ export function usePivotCache({
     flatRows,
     grandTotals,
     loading,
+    groupCount: rootNodes.length,
     toggleExpand,
     expandAll,
     collapseAll,
