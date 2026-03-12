@@ -806,7 +806,24 @@ export function App(): React.ReactElement {
         await window.api.exec(sql);
         recordHistoryEntry(activeTable, "data_op", description || "Data operation", [sql]);
         setSchemaVersion((v) => v + 1);
+        setDataVersion((v) => v + 1);
         setResetKey((k) => k + 1);
+
+        // Refresh schema (operations like remove_duplicates use CREATE OR REPLACE)
+        const newSchema = await window.api.describe(activeTable);
+        setSchema(newSchema);
+
+        // Update row count in tables state
+        const countResult = await window.api.query(
+          `SELECT COUNT(*) as count FROM "${activeTable}"`
+        );
+        setTables((prev) =>
+          prev.map((t) =>
+            t.tableName === activeTable
+              ? { ...t, rowCount: Number(countResult[0].count) }
+              : t
+          )
+        );
       } catch (err) {
         console.error("Data operation error:", err);
       }

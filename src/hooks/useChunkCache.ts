@@ -89,6 +89,7 @@ export function useChunkCache({
     filtersKey,
     sortKey,
     visibleColumnsKey,
+    dataVersion,
   ]);
 
   const fetchChunk = useCallback(
