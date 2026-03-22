@@ -1169,7 +1169,9 @@ export function App(): React.ReactElement {
       setSchemaVersion((v) => v + 1);
       setResetKey((k) => k + 1);
 
-      // Update row count
+      // Refresh schema and row count
+      const newSchema = await window.api.describe(activeTable);
+      setSchema(newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${activeTable}"`
       );
@@ -1199,7 +1201,9 @@ export function App(): React.ReactElement {
       setSchemaVersion((v) => v + 1);
       setResetKey((k) => k + 1);
 
-      // Update row count
+      // Refresh schema and row count
+      const newSchema = await window.api.describe(activeTable);
+      setSchema(newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${activeTable}"`
       );
@@ -1331,7 +1335,9 @@ export function App(): React.ReactElement {
       setSchemaVersion((v) => v + 1);
       setResetKey((k) => k + 1);
 
-      // Update row count
+      // Refresh schema and row count
+      const newSchema = await window.api.describe(activeTable);
+      setSchema(newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${activeTable}"`
       );
@@ -1361,7 +1367,9 @@ export function App(): React.ReactElement {
       setSchemaVersion((v) => v + 1);
       setResetKey((k) => k + 1);
 
-      // Update row count
+      // Refresh schema and row count
+      const newSchema = await window.api.describe(activeTable);
+      setSchema(newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${activeTable}"`
       );
@@ -1478,7 +1486,9 @@ export function App(): React.ReactElement {
       setDataVersion((v) => v + 1);
       setResetKey((k) => k + 1);
 
-      // Update row count
+      // Refresh schema and row count
+      const newSchema = await window.api.describe(tableName);
+      setSchema(newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${tableName}"`
       );
