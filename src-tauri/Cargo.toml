@@ -1,6 +1,6 @@
 [package]
 name = "chikku-parser"
-version = "0.3.48"
+version = "0.3.49"
 description = "Desktop app for viewing, combining, and transforming CSV data"
 authors = ["Abin Jacob <aj4abinjacob@gmail.com>"]
 license = "MIT"

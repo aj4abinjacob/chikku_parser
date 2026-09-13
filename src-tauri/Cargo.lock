@@ -805,7 +805,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chikku-parser"
-version = "0.3.48"
+version = "0.3.49"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
