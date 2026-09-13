@@ -57,7 +57,7 @@ export function StatusBar({
       {activeTable && filterEnabled && (
         <div
           className={`filter-toggle${filterPanelOpen ? " active" : ""}`}
-          style={{ left: sidebarVisible ? "var(--sidebar-width)" : "36px" }}
+          style={{ left: sidebarVisible ? "var(--app-sidebar-width)" : "36px" }}
           onClick={onToggleFilterPanel}
         >
           <span className="filter-toggle-label">Filters</span>

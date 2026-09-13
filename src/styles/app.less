@@ -3,10 +3,12 @@
 @import "~@blueprintjs/popover2/lib/css/blueprint-popover2.css";
 
 :root {
-  --sidebar-width: 300px;
-  --sidebar-width-json: 252px;
-  --sidebar-width-document: 252px;
-  --sidebar-width-pdf: 272px;
+  // Prefixed with --app- because pdf_viewer.css declares --sidebar-width on its
+  // own .sidebar rule, which shadows an unprefixed :root value on our sidebar.
+  --app-sidebar-width: 300px;
+  --app-sidebar-width-json: 252px;
+  --app-sidebar-width-document: 252px;
+  --app-sidebar-width-pdf: 272px;
   --statusbar-height: 28px;
   --control-radius: 6px;
   --surface-radius: 8px;
@@ -2644,7 +2646,7 @@ html, body, #root {
   position: relative;
   flex: 0 0 auto;
   align-self: stretch;
-  width: var(--sidebar-width);
+  width: var(--app-sidebar-width);
   overflow: hidden;
   transition: width var(--motion-duration-standard) var(--motion-ease-standard);
 }
@@ -2656,11 +2658,11 @@ html, body, #root {
 .sidebar-shell-document.sidebar-shell-open,
 .sidebar-shell-json.sidebar-shell-open,
 .sidebar-shell-pdf.sidebar-shell-open {
-  width: var(--sidebar-width-document);
+  width: var(--app-sidebar-width-document);
 }
 
 .sidebar-shell-pdf.sidebar-shell-open {
-  width: var(--sidebar-width-pdf);
+  width: var(--app-sidebar-width-pdf);
 }
 
 .sidebar-shell-panel,
@@ -2676,17 +2678,17 @@ html, body, #root {
 }
 
 .sidebar-shell-panel {
-  width: var(--sidebar-width);
+  width: var(--app-sidebar-width);
 }
 
 .sidebar-shell-document .sidebar-shell-panel,
 .sidebar-shell-json .sidebar-shell-panel,
 .sidebar-shell-pdf .sidebar-shell-panel {
-  width: var(--sidebar-width-document);
+  width: var(--app-sidebar-width-document);
 }
 
 .sidebar-shell-pdf .sidebar-shell-panel {
-  width: var(--sidebar-width-pdf);
+  width: var(--app-sidebar-width-pdf);
 }
 
 .sidebar-shell-strip {
@@ -2751,8 +2753,8 @@ html, body, #root {
 
 // ── Sidebar ──
 .sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
+  width: var(--app-sidebar-width);
+  min-width: var(--app-sidebar-width);
   height: 100%;
   position: relative;
   background: #f7f9fb;
@@ -4144,8 +4146,8 @@ html, body, #root {
 .sidebar-json,
 .sidebar-shell-pdf .sidebar,
 .sidebar-pdf {
-  width: var(--sidebar-width-document);
-  min-width: var(--sidebar-width-document);
+  width: var(--app-sidebar-width-document);
+  min-width: var(--app-sidebar-width-document);
 
   .sidebar-section {
     padding-left: 10px;
@@ -4159,8 +4161,8 @@ html, body, #root {
 
 .sidebar-shell-pdf .sidebar,
 .sidebar-pdf {
-  width: var(--sidebar-width-pdf);
-  min-width: var(--sidebar-width-pdf);
+  width: var(--app-sidebar-width-pdf);
+  min-width: var(--app-sidebar-width-pdf);
 }
 
 .sidebar-pdf-navigation {
