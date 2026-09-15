@@ -383,6 +383,38 @@ pub fn file_exists(file_path: String) -> AppResult<bool> {
     Ok(Path::new(&file_path).exists())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileStat {
+    pub exists: bool,
+    pub modified_ms: Option<i64>,
+    pub size: Option<u64>,
+}
+
+#[tauri::command]
+pub fn file_stat(file_path: String) -> AppResult<FileStat> {
+    match std::fs::metadata(&file_path) {
+        Ok(metadata) => {
+            let modified_ms = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|elapsed| elapsed.as_millis() as i64);
+            Ok(FileStat {
+                exists: true,
+                modified_ms,
+                size: Some(metadata.len()),
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileStat {
+            exists: false,
+            modified_ms: None,
+            size: None,
+        }),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[tauri::command]
 pub fn allow_pdf_asset(app: AppHandle, file_path: String) -> AppResult<String> {
     let path = validated_pdf_path(&file_path)?;

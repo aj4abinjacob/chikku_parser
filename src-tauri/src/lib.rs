@@ -103,6 +103,7 @@ pub fn run() {
             read_binary_file,
             write_binary_file,
             file_exists,
+            file_stat,
             allow_pdf_asset,
             open_pdf_externally,
             open_new_window,

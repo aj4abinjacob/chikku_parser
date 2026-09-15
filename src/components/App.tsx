@@ -18,12 +18,14 @@ import { JsonWorkspace } from "./JsonWorkspace";
 import { MarkdownWorkspace } from "./MarkdownWorkspace";
 import { PdfWorkspace } from "./PdfWorkspace";
 import { HelpCenter } from "./HelpCenter";
+import { FileChangedBanner } from "./FileChangedBanner";
 import { buildColumnStatsSummaryQuery, buildColumnTopValuesQuery, buildColumnUniqueValuesQuery, buildCombineQuery, buildDatasetOverviewQuery } from "../utils/sqlBuilder";
 import { buildColOpUpdateSQL, buildStepDescription } from "../utils/colOpsSQL";
 import { buildRowOpSQL, buildRowOpStepDescription } from "../utils/rowOpsSQL";
 import { DEFAULT_PDF_PAGE_APPEARANCE, PdfPageAppearance } from "../utils/pdfPageAppearance";
 import { useChunkCache } from "../hooks/useChunkCache";
 import { usePivotCache } from "../hooks/usePivotCache";
+import { useExternalFileChange } from "../hooks/useExternalFileChange";
 import { isTauri } from "../tauri-api";
 
 const FILTER_PANEL_EXIT_MS = 180;
@@ -624,6 +626,17 @@ export function App(): React.ReactElement {
     && !activeLoadedTable.filePath.startsWith("(")
     && isPdfFilePath(activeLoadedTable.filePath);
   const documentWorkspaceActive = jsonWorkspaceActive || markdownWorkspaceActive || pdfWorkspaceActive;
+
+  // Watch the active file for edits made outside the app (checked on window focus)
+  const watchedFilePath = activeLoadedTable && !activeLoadedTable.filePath.startsWith("(")
+    ? activeLoadedTable.filePath
+    : null;
+  const {
+    changed: activeFileChanged,
+    missing: activeFileMissing,
+    resync: resyncActiveFileWatch,
+  } = useExternalFileChange(watchedFilePath);
+  const [reloadingActiveFile, setReloadingActiveFile] = useState(false);
 
   const handleGetColumnStats = useCallback(
     async (column: string): Promise<ColumnStats> => {
@@ -1250,7 +1263,38 @@ export function App(): React.ReactElement {
     setResetKey((k) => k + 1);
   }, [activeTable, schema]);
 
-  const handleReloadActiveDocument = useCallback(async () => {
+  // Drop op backups and QC state tied to a table that is about to be re-imported
+  const clearTableOpsState = useCallback(async (tableName: string) => {
+    const backupTables = [
+      ...colOpsStepsRef.current.map((step) => step.backupTable),
+      ...rowOpsStepsRef.current.map((step) => step.backupTable),
+      `__colops_snapshot_${tableName}`,
+      `__rowops_snapshot_${tableName}`,
+    ].filter(Boolean) as string[];
+    for (const backupTable of backupTables) {
+      try { await window.api.exec(`DROP TABLE IF EXISTS "${backupTable}"`); } catch (_) { /* ignore */ }
+    }
+    setColOpsSteps([]);
+    setUndoStrategy("per-step");
+    setColOpsNextId(1);
+    setRowOpsSteps([]);
+    setRowOpsUndoStrategy("per-step");
+    setRowOpsNextId(1);
+    setQcSessions((prev) => {
+      if (!(tableName in prev)) return prev;
+      const { [tableName]: _removed, ...rest } = prev;
+      return rest;
+    });
+    setQcDirtyTables((prev) => {
+      if (!prev.has(tableName)) return prev;
+      const next = new Set(prev);
+      next.delete(tableName);
+      qcDirtyTablesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const handleReloadActiveDocument = useCallback(async (fromDisk?: boolean) => {
     const currentTableName = activeTableRef.current;
     if (!currentTableName) return;
     const currentTable = tablesRef.current.find((t) => t.tableName === currentTableName);
@@ -1274,7 +1318,9 @@ export function App(): React.ReactElement {
         setTables((prev) =>
           prev.map((table) =>
             table.tableName === currentTable.tableName
-              ? { ...table, rowCount }
+              ? fromDisk === true
+                ? { ...table, rowCount, reloadVersion: (table.reloadVersion ?? 0) + 1 }
+                : { ...table, rowCount }
               : table
           )
         );
@@ -1284,6 +1330,11 @@ export function App(): React.ReactElement {
         console.error(`Failed to refresh text workspace file ${currentTable.filePath}:`, err);
       }
       return;
+    }
+
+    if (fromDisk === true) {
+      // Re-importing replaces the table, so operations built on the old import no longer apply
+      await clearTableOpsState(currentTable.tableName);
     }
 
     const result = await loadSingleFile(
@@ -1301,10 +1352,32 @@ export function App(): React.ReactElement {
       )
     );
     setSchema(result.schema);
+    if (fromDisk === true) {
+      setViewState((prev) => ({
+        ...prev,
+        filters: { logic: "AND", children: [] },
+        visibleColumns: [],
+        columnOrder: [],
+        sortColumns: [],
+        pivotConfig: null,
+      }));
+    }
     setSchemaVersion((v) => v + 1);
     setDataVersion((v) => v + 1);
     setResetKey((k) => k + 1);
-  }, [loadSingleFile]);
+  }, [clearTableOpsState, loadSingleFile]);
+
+  const handleReloadChangedFile = useCallback(async () => {
+    setReloadingActiveFile(true);
+    try {
+      await handleReloadActiveDocument(true);
+    } catch (err) {
+      console.error("Failed to reload the changed file:", err);
+    } finally {
+      setReloadingActiveFile(false);
+      resyncActiveFileWatch();
+    }
+  }, [handleReloadActiveDocument, resyncActiveFileWatch]);
 
   const handleActivePdfPageCountChange = useCallback((pageCount: number) => {
     const currentTableName = activeTableRef.current;
@@ -3102,6 +3175,11 @@ export function App(): React.ReactElement {
     .filter((table): table is LoadedTable => !!table)
     .map(getDisplayFileName);
   const activeDisplayFileName = activeLoadedTable ? getDisplayFileName(activeLoadedTable) : null;
+  const activeFileReloadWarning = documentWorkspaceActive
+    ? (documentFileActions?.isDirty ? "Your unsaved edits will be replaced." : null)
+    : (colOpsSteps.length > 0 || rowOpsSteps.length > 0 || (activeTable ? qcDirtyTables.has(activeTable) : false)
+      ? "Re-importing discards column ops, row ops, and QC values on this table."
+      : null);
   const fileDragClass = fileDragState === "idle" ? "" : ` file-drag-${fileDragState}`;
   const usesMacTitlebarOverlay = isTauri()
     && typeof navigator !== "undefined"
@@ -3239,6 +3317,16 @@ export function App(): React.ReactElement {
         <div className="data-area">
           {hasData ? (
             <>
+              {watchedFilePath && (activeFileChanged || activeFileMissing) ? (
+                <FileChangedBanner
+                  fileName={activeDisplayFileName ?? watchedFilePath}
+                  missing={activeFileMissing}
+                  reloading={reloadingActiveFile}
+                  warning={activeFileReloadWarning}
+                  onReload={handleReloadChangedFile}
+                  onDismiss={resyncActiveFileWatch}
+                />
+              ) : null}
               {jsonWorkspaceActive && activeLoadedTable ? (
                 <JsonWorkspace
                   table={activeLoadedTable}

@@ -9,7 +9,8 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import type { AppUpdateInfo, DbApi, LinkPreviewMetadata, OverviewWindowContext, UpdateDownloadEvent } from "./types";
+import { recordSelfWrite } from "./utils/fileWatch";
+import type { AppUpdateInfo, DbApi, FileStat, LinkPreviewMetadata, OverviewWindowContext, UpdateDownloadEvent } from "./types";
 
 interface RegexPattern {
   id: string;
@@ -181,13 +182,21 @@ function installTauriApi() {
     readTextFile: (filePath: string) =>
       invoke<string>("read_text_file", { filePath }),
 
-    writeTextFile: (filePath: string, contents: string) =>
-      invoke<boolean>("write_text_file", { filePath, contents }),
+    writeTextFile: async (filePath: string, contents: string) => {
+      const written = await invoke<boolean>("write_text_file", { filePath, contents });
+      recordSelfWrite(filePath);
+      return written;
+    },
 
-    writeBinaryFile: (filePath: string, contents: Uint8Array) =>
-      invoke<boolean>("write_binary_file", { filePath, bytes: Array.from(contents) }),
+    writeBinaryFile: async (filePath: string, contents: Uint8Array) => {
+      const written = await invoke<boolean>("write_binary_file", { filePath, bytes: Array.from(contents) });
+      recordSelfWrite(filePath);
+      return written;
+    },
 
     fileExists: (filePath: string) => invoke("file_exists", { filePath }),
+
+    fileStat: (filePath: string) => invoke<FileStat>("file_stat", { filePath }),
 
     allowPdfAsset: (filePath: string) =>
       invoke<string>("allow_pdf_asset", { filePath }),

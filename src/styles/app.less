@@ -4179,6 +4179,34 @@ html, body, #root {
   overflow: hidden;
 }
 
+// ── External file change banner ──
+.file-changed-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #c6d9ef;
+  background: #eef6ff;
+  color: #1c2b39;
+  font-size: 12px;
+
+  &.file-changed-banner-missing {
+    border-bottom-color: #f0d4a8;
+    background: #fdf5e7;
+  }
+}
+
+.file-changed-banner-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.file-changed-banner-warning {
+  color: #8a5a00;
+}
+
 // ── Virtual data grid ──
 .data-grid-container {
   flex: 1;
@@ -19678,5 +19706,20 @@ html.dark-theme #root {
   .in-value-dropdown-count,
   .rowops-column-picker-count {
     color: @dark-text-3;
+  }
+
+  .file-changed-banner {
+    border-bottom-color: @dark-accent-border;
+    background: @dark-accent-bg-subtle;
+    color: @dark-text-1;
+
+    &.file-changed-banner-missing {
+      border-bottom-color: @dark-warning;
+      background: @dark-warning-bg;
+    }
+  }
+
+  .file-changed-banner-warning {
+    color: @dark-warning;
   }
 }

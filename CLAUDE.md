@@ -41,7 +41,7 @@ Follow `RELEASE.md` whenever the user asks to publish a new tag. Always bump all
 | Capabilities | `src-tauri/capabilities/default.json` |
 | App entry | `src-tauri/src/main.rs` -> `lib.rs::run()` |
 | DuckDB session map | `src-tauri/src/db.rs` (per-window, keyed by Tauri window label) |
-| Tauri commands | `src-tauri/src/commands.rs` (load_file, query, exec, describe, tables, export_file, export_excel_multi, get_excel_sheets, free_memory, pattern CRUD, JSON/text/binary read/write, file_exists, open_new_window, close_db, take_pending_files) |
+| Tauri commands | `src-tauri/src/commands.rs` (load_file, query, exec, describe, tables, export_file, export_excel_multi, get_excel_sheets, free_memory, pattern CRUD, JSON/text/binary read/write, file_exists, file_stat, open_new_window, close_db, take_pending_files) |
 | Excel | `src-tauri/src/excel.rs` (calamine reader -> temp CSV; rust_xlsxwriter writer) |
 | Regex patterns | `src-tauri/src/patterns.rs` (GitHub fetch with bundled fallback from `src-tauri/assets/regex-patterns.json`; user patterns in `dirs::data_dir()/chikku-parser/`) |
 | Multi-window | `src-tauri/src/window_mgr.rs` (per-window pending-files queue; spawn new window per opened file) |
@@ -57,6 +57,11 @@ Multi-window model:
 - Renderer drains the queue on mount by calling `take_pending_files`.
 - `db.rs` serializes DuckDB values into JSON-safe canonical values: temporal values use ISO text, integers outside JavaScript's safe range and exact decimals use strings, and nested/list/map values stay structured. Grid SQL casts transport types such as wide DECIMAL and TIME WITH TIME ZONE to text where the Rust adapter cannot preserve them directly.
 
+External file changes:
+- `useExternalFileChange` (`src/hooks/useExternalFileChange.ts`) baselines the active file's mtime and size through the `file_stat` command and re-checks on window focus and visibility change — no watcher thread, no polling.
+- In-app writes call `recordSelfWrite` from `src/utils/fileWatch.ts` (wired into `writeTextFile`/`writeBinaryFile` in `src/tauri-api.ts`), so saves never look like external edits.
+- App.tsx renders `FileChangedBanner` above the workspace; reload runs `handleReloadActiveDocument(true)`, which bumps `reloadVersion` for document workspaces and re-imports tabular files after clearing their column/row op backups and QC state. Nothing is auto-reloaded.
+
 Webpack builds a web-target renderer to `dist-tauri/`. Tauri dev runs webpack-dev-server on port 5181.
 
 ## Architecture
@@ -65,7 +70,7 @@ Webpack builds a web-target renderer to `dist-tauri/`. Tauri dev runs webpack-de
 
 - `src-tauri/` — Rust/Tauri backend, commands, window management, assets
 - `src/components/` — React components
-- `src/hooks/` — `useChunkCache`, `usePivotCache`
+- `src/hooks/` — `useChunkCache`, `usePivotCache`, `useExternalFileChange`
 - `src/utils/` — `sqlBuilder.ts`, `colOpsSQL.ts`, `rowOpsSQL.ts`, `dateDetection.ts`
 - `src/types.ts` — TypeScript interfaces, including `DbApi`
 - `src/styles/app.less` — All styles (imports BlueprintJS CSS)
@@ -121,6 +126,7 @@ PDF.js viewer with thumbnails, outline navigation, search, zoom, rotation, passw
 - **ExcelSheetPickerDialog.tsx**: Multi-sheet import picker
 - **ImportRetryDialog.tsx**: CSV parse failure retry with delimiter/ignore options
 - **PreviewTableDialog.tsx**: Reusable results table dialog
+- **FileChangedBanner.tsx**: Inline strip above the workspace when the active file changed or disappeared on disk, with Reload / Keep mine (Reload asks for confirmation when unsaved edits or table operations would be lost)
 - **SearchableColumnSelect.tsx**: Popover2-based searchable column dropdown with keyboard nav
 - **RegexPatternPicker.tsx**: Inline pattern picker grouped by category
 - **RegexPatternManagerDialog.tsx**: Pattern CRUD + import/export

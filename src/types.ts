@@ -33,6 +33,7 @@ export interface DbApi {
   writeTextFile: (filePath: string, contents: string) => Promise<boolean>;
   writeBinaryFile: (filePath: string, contents: Uint8Array) => Promise<boolean>;
   fileExists: (filePath: string) => Promise<boolean>;
+  fileStat: (filePath: string) => Promise<FileStat>;
   allowPdfAsset: (filePath: string) => Promise<string>;
   openPdfExternally: (filePath: string) => Promise<boolean>;
   openOverviewWindow: (tableName: string, displayName: string) => Promise<string>;
@@ -54,6 +55,12 @@ export interface DbApi {
   releaseUpdateNotice: (version: string) => Promise<boolean>;
   installUpdate: (onProgress: (event: UpdateDownloadEvent) => void) => Promise<void>;
   restartApp: () => Promise<void>;
+}
+
+export interface FileStat {
+  exists: boolean;
+  modifiedMs: number | null;
+  size: number | null;
 }
 
 export interface OverviewWindowContext {
