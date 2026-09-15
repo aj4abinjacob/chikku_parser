@@ -47,6 +47,43 @@ const HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: "external-changes",
+    title: "Files changed outside Chikku",
+    category: "Essentials",
+    summary: "Notice edits another app made to the open file, and reload on your terms.",
+    icon: "refresh",
+    keywords: ["reload", "refresh", "changed", "disk", "external", "stale", "deleted", "moved", "watch"],
+    sections: [
+      {
+        title: "When the notice appears",
+        body: "If another app changes the file you have open, a banner appears above the workspace the next time the Chikku window comes back into focus. It works for tables, JSON, Markdown, and PDF files. Nothing is reloaded for you, so the version you are looking at never changes underneath you.",
+      },
+      {
+        title: "Reload or keep yours",
+        items: [
+          "Reload reads the new version from disk and replaces what is on screen.",
+          "Keep mine dismisses the banner and keeps what you have. You will be told again if the file changes once more.",
+          "When reloading would throw away work, the banner asks for a second confirmation first.",
+        ],
+      },
+      {
+        title: "What a reload replaces",
+        items: [
+          "JSON, Markdown, and PDF: unsaved edits in the workspace are replaced by the file on disk.",
+          "Tables: the file is imported again, so column ops, row ops, unsaved QC values, filters, and sorts on that file are cleared. Other files, including pivots and aggregates you generated, are untouched.",
+        ],
+      },
+      {
+        title: "Missing files",
+        body: "If the file is moved, renamed, or deleted, the banner says so instead of offering a reload. What is already open stays usable; dismiss the notice and export or Save As if you want the content back on disk.",
+      },
+      {
+        title: "Your own saves",
+        body: "Saving from inside Chikku never raises the notice. The banner only reports changes made by something else.",
+      },
+    ],
+  },
+  {
     id: "grid",
     title: "Explore a table",
     category: "Tabular data",
