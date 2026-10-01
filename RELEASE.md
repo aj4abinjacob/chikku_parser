@@ -13,14 +13,14 @@ tag unless every validation step passes.
 3. Run:
    - `npm run tauri:renderer:build`
    - `cargo check --manifest-path src-tauri/Cargo.toml`
-4. Commit the version bump and release changes.
+4. Commit the version bump and release changes to `master`.
 5. Run the release tag validator from the clean release commit:
    - `npm run release:check -- vX.Y.Z`
    - Confirm it reports the tag is ready.
    - If it fails, fix the reported issue before tagging.
 6. Create and push an annotated tag from that exact commit:
    - `git tag -a vX.Y.Z -m "Chikku Parser vX.Y.Z"`
-   - `git push origin <branch>`
+   - `git push origin master`
    - `git push origin vX.Y.Z`
 7. Wait for `.github/workflows/release.yml` to complete successfully, including
    the `Publish updater notes` job.
