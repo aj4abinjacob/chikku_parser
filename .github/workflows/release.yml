@@ -18,6 +18,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify tag commit is on master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/master"; then
+            echo "Release tag $GITHUB_REF_NAME does not point to a commit contained in master." >&2
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
