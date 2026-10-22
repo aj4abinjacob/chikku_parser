@@ -1,6 +1,51 @@
 import { RowOpType, FilterGroup, ColumnInfo } from "../types";
 import { escapeIdent, buildFilterGroupClause } from "./sqlBuilder";
 
+function emptyRowPredicate(params: Record<string, string>, schema: ColumnInfo[]): string {
+  const selected: string[] = params.columns ? JSON.parse(params.columns) : [];
+  const columns = selected.length > 0 ? schema.filter((column) => selected.includes(column.column_name)) : schema;
+  if (columns.length === 0) throw new Error("No columns selected");
+  const conditions = columns.map((column) => {
+    const ident = escapeIdent(column.column_name);
+    return /^(VARCHAR|TEXT|STRING)/i.test(column.column_type)
+      ? `(${ident} IS NULL OR TRIM(CAST(${ident} AS VARCHAR)) = '')` : `${ident} IS NULL`;
+  });
+  return `(${conditions.join(params.emptyMode === "any" ? " OR " : " AND ")})`;
+}
+
+/** The same result query drives deduplication and its removal-count preview. */
+export function buildDeduplicatedRowsQuery(tableName: string, params: Record<string, string>, filters: FilterGroup, schema: ColumnInfo[]): string {
+  const table = escapeIdent(tableName);
+  const filter = buildFilterGroupClause(filters);
+  const selected: string[] = params.columns ? JSON.parse(params.columns) : [];
+  const columns = selected.length > 0 ? selected : schema.map((column) => column.column_name);
+  if (columns.length === 0) throw new Error("No columns selected for deduplication");
+  const selectColumns = schema.map((column) => escapeIdent(column.column_name)).join(", ");
+  const cleanedColumns = schema.map((column) => {
+    const ident = escapeIdent(column.column_name);
+    return /^(VARCHAR|TEXT|STRING)/i.test(column.column_type) ? `NULLIF(TRIM(${ident}), '') AS ${ident}` : ident;
+  }).join(", ");
+  let rankName = "__chikku_dedup_rank";
+  while (schema.some((column) => column.column_name.toLowerCase() === rankName.toLowerCase())) rankName += "_";
+  const rank = escapeIdent(rankName);
+  const cleaned = escapeIdent(tableName.toLowerCase() === "__chikku_cleaned_rows" ? "__chikku_cleaned_rows_2" : "__chikku_cleaned_rows");
+  const ranked = escapeIdent(tableName.toLowerCase() === "__chikku_ranked_rows" ? "__chikku_ranked_rows_2" : "__chikku_ranked_rows");
+  return `WITH ${cleaned} AS (SELECT ${cleanedColumns} FROM ${table}${filter ? ` WHERE ${filter}` : ""}), ${ranked} AS (SELECT *, row_number() OVER (PARTITION BY ${columns.map(escapeIdent).join(", ")}) AS ${rank} FROM ${cleaned}) SELECT ${selectColumns} FROM ${ranked} WHERE ${rank} = 1${filter ? ` UNION ALL SELECT ${selectColumns} FROM ${table} WHERE (${filter}) IS NOT TRUE` : ""}`;
+}
+
+export function buildRowOpPreviewQuery(tableName: string, opType: RowOpType, params: Record<string, string>, filters: FilterGroup, schema: ColumnInfo[]): string {
+  const table = escapeIdent(tableName);
+  const filter = buildFilterGroupClause(filters);
+  if (opType === "remove_duplicates") {
+    return `SELECT (SELECT COUNT(*) FROM ${table}) - COUNT(*) AS cnt FROM (${buildDeduplicatedRowsQuery(tableName, params, filters, schema)}) AS result`;
+  }
+  if ((opType === "delete_filtered" || opType === "keep_filtered") && !filter) throw new Error("Apply a filter first");
+  const predicate = opType === "keep_filtered" ? `(${filter}) IS NOT TRUE`
+    : opType === "delete_filtered" ? filter
+    : `${filter ? `(${filter}) AND ` : ""}${emptyRowPredicate(params, schema)}`;
+  return `SELECT COUNT(*) AS cnt FROM ${table} WHERE ${predicate}`;
+}
+
 /**
  * Build SQL for a row operation, optionally scoped by filters.
  */
@@ -24,67 +69,16 @@ export function buildRowOpSQL(
     case "keep_filtered": {
       // Delete rows NOT matching the active filter
       if (!filterClause) throw new Error("No active filter — nothing to keep");
-      return `DELETE FROM ${table} WHERE NOT (${filterClause})`;
+      return `DELETE FROM ${table} WHERE (${filterClause}) IS NOT TRUE`;
     }
 
     case "remove_empty": {
-      // Delete rows where all/any selected columns are NULL/empty
-      const columns: string[] = params.columns ? JSON.parse(params.columns) : [];
-      const emptyMode = params.emptyMode === "any" ? "any" : "all";
-      const cols = columns.length > 0
-        ? columns.map((c) => schema.find((s) => s.column_name === c)).filter(Boolean) as ColumnInfo[]
-        : schema;
-
-      if (cols.length === 0) throw new Error("No columns selected");
-
-      const conditions = cols.map((col) => {
-        const ident = escapeIdent(col.column_name);
-        const colType = col.column_type.toUpperCase();
-        const isVarchar = colType.startsWith("VARCHAR") || colType === "TEXT" || colType === "STRING";
-        if (isVarchar) {
-          return `(${ident} IS NULL OR TRIM(CAST(${ident} AS VARCHAR)) = '')`;
-        }
-        return `${ident} IS NULL`;
-      });
-
-      const joiner = emptyMode === "any" ? " OR " : " AND ";
-      let sql = `DELETE FROM ${table} WHERE ${conditions.join(joiner)}`;
-
-      // Scope by active filter if present
-      if (filterClause) {
-        sql = `DELETE FROM ${table} WHERE (${filterClause}) AND (${conditions.join(joiner)})`;
-      }
-
-      return sql;
+      const predicate = emptyRowPredicate(params, schema);
+      return `DELETE FROM ${table} WHERE ${filterClause ? `(${filterClause}) AND ` : ""}${predicate}`;
     }
 
-    case "remove_duplicates": {
-      // Deduplicate rows using QUALIFY row_number()
-      const columns: string[] = params.columns ? JSON.parse(params.columns) : [];
-      const cols = columns.length > 0 ? columns : schema.map((c) => c.column_name);
-
-      if (cols.length === 0) throw new Error("No columns selected for deduplication");
-
-      // Build cleaned CTE with NULLIF for VARCHAR columns
-      const selectExprs = schema.map((col) => {
-        const ident = escapeIdent(col.column_name);
-        const colType = col.column_type.toUpperCase();
-        const isVarchar = colType.startsWith("VARCHAR") || colType === "TEXT" || colType === "STRING";
-        if (isVarchar) {
-          return `NULLIF(TRIM(${ident}), '') AS ${ident}`;
-        }
-        return ident;
-      });
-
-      const partitionCols = cols.map((c) => escapeIdent(c)).join(", ");
-
-      let whereClause = "";
-      if (filterClause) {
-        whereClause = `WHERE ${filterClause} `;
-      }
-
-      return `CREATE OR REPLACE TABLE ${table} AS WITH cleaned AS (SELECT ${selectExprs.join(", ")} FROM ${table} ${whereClause}) SELECT * FROM cleaned QUALIFY row_number() OVER (PARTITION BY ${partitionCols}) = 1`;
-    }
+    case "remove_duplicates":
+      return `CREATE OR REPLACE TABLE ${table} AS ${buildDeduplicatedRowsQuery(tableName, params, filters, schema)}`;
 
     default:
       throw new Error(`Unknown row operation type: ${opType}`);

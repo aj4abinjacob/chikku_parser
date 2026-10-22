@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Button,
   InputGroup,
@@ -11,7 +11,7 @@ import {
   Tag,
 } from "@blueprintjs/core";
 import { SoftSelect } from "./SoftSelect";
-import { ColumnInfo, ColOpType, ColOpStep, UndoStrategy, FilterGroup, ColOpTargetMode } from "../types";
+import { ColumnInfo, ColOpType, ColOpStep, UndoStrategy, FilterGroup, ColOpTargetMode, hasActiveFilters } from "../types";
 import { buildColOpExpr } from "../utils/colOpsSQL";
 import {
   guardNumberInputDrop,
@@ -25,6 +25,7 @@ import { buildFilterGroupClause } from "../utils/sqlBuilder";
 import { RegexPatternPicker } from "./RegexPatternPicker";
 import { RegexPatternManagerDialog } from "./RegexPatternManagerDialog";
 import { SearchableColumnSelect } from "./SearchableColumnSelect";
+import { columnNameExists, rowScopeLabel, suggestColumnName } from "../utils/operationUX";
 
 const OP_GROUPS: { label: string; ops: { value: ColOpType; label: string }[] }[] = [
   {
@@ -99,7 +100,7 @@ export function ColumnOpsPanel({
   const [selectedColumn, setSelectedColumn] = useState("");
   const [opType, setOpType] = useState<ColOpType>("find_replace");
   const [params, setParams] = useState<Record<string, string>>({});
-  const [targetMode, setTargetMode] = useState<ColOpTargetMode>("replace");
+  const [targetMode, setTargetMode] = useState<ColOpTargetMode>("new_column");
   const [targetColumn, setTargetColumn] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,8 +161,27 @@ export function ColumnOpsPanel({
     return () => clearTimeout(timer);
   }, [activeTable, selectedColumn, opType, params, visible, colOpsSteps.length, activeFilters]);
 
-  const hasFilter = unfilteredRows !== null;
-  const isFiltered = hasFilter && totalRows !== unfilteredRows;
+  const hasFilter = hasActiveFilters(activeFilters);
+  const isSchemaOp = SCHEMA_OPS.has(opType);
+  const columnNames = columns.map((column) => column.column_name);
+  const targetMissing = targetMode === "existing_column" && !columnNames.includes(targetColumn);
+  const newTargetInvalid = targetMode === "new_column" && (!targetColumn.trim() || columnNameExists(columnNames, targetColumn));
+  const suggestedName = useRef<string | null>(null);
+  const suggestionContext = useRef<string | null>(null);
+
+  useEffect(() => {
+    const next = suggestColumnName(columns.map((column) => column.column_name), `${selectedColumn || "value"}_${opType === "find_replace" ? "replaced" : opType}`);
+    const context = JSON.stringify([activeTable, selectedColumn, opType]);
+    if (suggestionContext.current !== context) {
+      setTargetMode("new_column");
+      setTargetColumn(next);
+      suggestionContext.current = context;
+    } else {
+      const previous = suggestedName.current;
+      setTargetColumn((current) => current === previous ? next : current);
+    }
+    suggestedName.current = next;
+  }, [activeTable, selectedColumn, opType, columns]);
   const showTargetMode = !NO_TARGET_OPS.has(opType);
   const hideExistingTarget = NO_EXISTING_TARGET_OPS.has(opType);
   const needsParams = !NO_PARAM_OPS.has(opType);
@@ -188,7 +208,7 @@ export function ColumnOpsPanel({
   })();
 
   const handleApply = async (confirmedDelete = false) => {
-    if (!selectedColumn || !activeTable) return;
+    if (!selectedColumn || !activeTable || loading || paramsMissing || (showTargetMode && (targetMissing || newTargetInvalid))) return;
     if (opType === "rename_column" && (!newColumnName || renameDuplicate || renameSameName)) return;
     if (opType === "delete_column" && deleteWouldRemoveLastColumn) return;
     if (opType === "delete_column" && !confirmedDelete) {
@@ -196,7 +216,7 @@ export function ColumnOpsPanel({
       return;
     }
     const effectiveTargetMode = showTargetMode ? targetMode : "replace";
-    const effectiveTargetCol = showTargetMode ? targetColumn : "";
+    const effectiveTargetCol = showTargetMode ? targetColumn.trim() : "";
     if (effectiveTargetMode === "new_column" && !effectiveTargetCol.trim()) return;
     if (effectiveTargetMode === "existing_column" && !effectiveTargetCol) return;
     setLoading(true);
@@ -505,8 +525,7 @@ export function ColumnOpsPanel({
   const applyDisabled =
     !selectedColumn || loading || (!SCHEMA_OPS.has(opType) && isUnchangedSinceApply) || paramsMissing
     || renameDuplicate || renameSameName || deleteWouldRemoveLastColumn
-    || (showTargetMode && targetMode === "new_column" && (!targetColumn.trim() || columns.some((c) => c.column_name === targetColumn.trim())))
-    || (showTargetMode && targetMode === "existing_column" && !targetColumn);
+    || (showTargetMode && (newTargetInvalid || targetMissing));
 
   const statusInfo = (() => {
     if (successMsg) return { tag: "Applied", intent: Intent.SUCCESS, icon: "tick" as const, detail: successMsg };
@@ -534,16 +553,11 @@ export function ColumnOpsPanel({
             </Tag>
             <span className="colops-status-detail" title={statusInfo.detail}>{statusInfo.detail}</span>
           </div>
-          {isFiltered && (
-            <Tag minimal icon="filter" intent={Intent.PRIMARY} className="colops-scope-tag">
-              {totalRows.toLocaleString()} of {unfilteredRows!.toLocaleString()} rows
-            </Tag>
-          )}
-          {!isFiltered && (
-            <Tag minimal icon="database" className="colops-scope-tag colops-scope-all">
-              All {totalRows.toLocaleString()} rows
-            </Tag>
-          )}
+          <Tag minimal icon={!isSchemaOp && hasFilter ? "filter" : "database"} intent={!isSchemaOp && hasFilter ? Intent.PRIMARY : undefined} className="colops-scope-tag">
+            {isSchemaOp
+              ? `Whole column · ${(unfilteredRows ?? totalRows).toLocaleString()} rows`
+              : rowScopeLabel(hasFilter, totalRows, unfilteredRows)}
+          </Tag>
         </div>
         <div className="colops-toolbar-actions">
           <Button
@@ -581,7 +595,7 @@ export function ColumnOpsPanel({
                 setOpType(newOp);
                 setParams({});
                 if (NO_EXISTING_TARGET_OPS.has(newOp) && targetMode === "existing_column") {
-                  setTargetMode("replace");
+                  setTargetMode("new_column");
                   setTargetColumn("");
                 }
               }}
@@ -601,6 +615,16 @@ export function ColumnOpsPanel({
 
           {needsParams && renderParams()}
 
+          {selectedColumn && (
+            <div role="status" style={{ fontSize: 12, lineHeight: 1.5 }}>
+              {isSchemaOp
+                ? `Changes the whole column in ${activeTable}; filters do not limit schema changes.`
+                : showTargetMode && targetMode === "new_column"
+                  ? `Creates "${targetColumn.trim()}"; source values are preserved.${hasFilter ? " Rows outside the filters are NULL in the new column." : ""}`
+                  : `Overwrites "${showTargetMode && targetMode === "existing_column" ? targetColumn : selectedColumn}" on ${hasFilter ? "rows matching the active filters" : "all rows"}.`}
+            </div>
+          )}
+
           {showTargetMode && (
             <div className="colops-field">
               <label>Write to</label>
@@ -609,8 +633,9 @@ export function ColumnOpsPanel({
                   inline
                   selectedValue={targetMode}
                   onChange={(e) => {
-                    setTargetMode((e.target as HTMLInputElement).value as ColOpTargetMode);
-                    setTargetColumn("");
+                    const mode = (e.target as HTMLInputElement).value as ColOpTargetMode;
+                    setTargetMode(mode);
+                    setTargetColumn(mode === "new_column" ? suggestColumnName(columnNames, `${selectedColumn || "value"}_${opType === "find_replace" ? "replaced" : opType}`) : "");
                   }}
                 >
                   <Radio label="Same column" value="replace" />
@@ -622,7 +647,7 @@ export function ColumnOpsPanel({
                     value={targetColumn}
                     onChange={(e) => setTargetColumn(e.target.value)}
                     placeholder="New column name..."
-                    intent={targetColumn && columns.some((c) => c.column_name === targetColumn.trim()) ? Intent.DANGER : Intent.NONE}
+                    intent={targetColumn && columnNameExists(columnNames, targetColumn) ? Intent.DANGER : Intent.NONE}
                     onKeyDown={(e) => { if (e.key === "Enter") handleApply(); }}
                     fill
                   />

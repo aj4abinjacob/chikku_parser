@@ -27,6 +27,7 @@ import { useChunkCache } from "../hooks/useChunkCache";
 import { usePivotCache } from "../hooks/usePivotCache";
 import { useExternalFileChange } from "../hooks/useExternalFileChange";
 import { isTauri } from "../tauri-api";
+import { applyTableMutation } from "../utils/operationUX";
 import { createDefaultViewState, reconcileViewState, renameViewColumns, SchemaRequestGate, TableViewStore } from "../utils/tableViews";
 
 const FILTER_PANEL_EXIT_MS = 180;
@@ -437,6 +438,7 @@ export function App(): React.ReactElement {
   const [resetKey, setResetKey] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [pendingExcelImport, setPendingExcelImport] = useState<PendingExcelImport | null>(null);
   const [pendingRetry, setPendingRetry] = useState<PendingRetry | null>(null);
   const [colOpsSteps, setColOpsSteps] = useState<ColOpStep[]>([]);
@@ -2203,31 +2205,14 @@ export function App(): React.ReactElement {
   // Data operation: run SQL to transform columns/rows
   const handleDataOperation = useCallback(
     async (sql: string, description?: string, columnRenames?: Record<string, string>) => {
-      if (!activeTable) return;
-      try {
-        await window.api.exec(sql);
-        recordHistoryEntry(activeTable, "data_op", description || "Data operation", [sql]);
-        setDataVersion((v) => v + 1);
-        setResetKey((k) => k + 1);
-
-        // Refresh schema (operations like remove_duplicates use CREATE OR REPLACE)
-        const newSchema = await window.api.describe(activeTable);
-        applyTableSchema(activeTable, newSchema, columnRenames);
-
-        // Update row count in tables state
-        const countResult = await window.api.query(
-          `SELECT COUNT(*) as count FROM "${activeTable}"`
-        );
-        setTables((prev) =>
-          prev.map((t) =>
-            t.tableName === activeTable
-              ? { ...t, rowCount: Number(countResult[0].count) }
-              : t
-          )
-        );
-      } catch (err) {
-        console.error("Data operation error:", err);
-      }
+      if (!activeTable) throw new Error("Select a file before applying an operation.");
+      const updated = await applyTableMutation(window.api, activeTable, sql);
+      recordHistoryEntry(activeTable, "data_op", description || "Data operation", [sql]);
+      setDataVersion((v) => v + 1);
+      setResetKey((k) => k + 1);
+      applyTableSchema(activeTable, updated.schema, columnRenames);
+      setTables((prev) => prev.map((table) => table.tableName === activeTable
+        ? { ...table, rowCount: updated.rowCount } : table));
     },
     [activeTable, recordHistoryEntry, applyTableSchema]
   );
@@ -2235,31 +2220,21 @@ export function App(): React.ReactElement {
   // Sample table: create a new table with a random sample of rows
   const handleSampleTable = useCallback(
     async (n: number, isPercent: boolean) => {
-      if (!activeTable) return;
-      try {
-        const existingNames = new Set(tablesRef.current.map((t) => t.tableName));
-        const sampleName = nextSampleName(existingNames);
-        const sampleClause = isPercent ? `${n} PERCENT (reservoir)` : `${n} ROWS`;
-        await window.api.exec(
-          `CREATE TABLE "${sampleName}" AS SELECT * FROM "${activeTable}" USING SAMPLE ${sampleClause}`
-        );
-        const desc = await window.api.describe(sampleName);
-        const countResult = await window.api.query(
-          `SELECT COUNT(*) as count FROM "${sampleName}"`
-        );
-        const sampleTable: LoadedTable = {
-          tableName: sampleName,
+      if (!activeTable) throw new Error("Select a file before applying an operation.");
+      const existingNames = new Set(tablesRef.current.map((table) => table.tableName));
+      const sampleName = nextSampleName(existingNames);
+      const sampleClause = isPercent ? `${n} PERCENT (reservoir)` : `${n} ROWS`;
+      const updated = await applyTableMutation(window.api, sampleName,
+        `CREATE TABLE "${sampleName}" AS SELECT * FROM "${activeTable}" USING SAMPLE ${sampleClause}`);
+      const sampleTable: LoadedTable = {
+        tableName: sampleName,
         filePath: "(sample)",
-          schema: desc,
-          rowCount: Number(countResult[0].count),
-        };
-
-        setTables((prev) => [...prev, sampleTable]);
-        initializeTableHistory(sampleTable);
-        activateTable(sampleName, sampleTable);
-      } catch (err) {
-        console.error("Sample table error:", err);
-      }
+        schema: updated.schema,
+        rowCount: updated.rowCount,
+      };
+      setTables((prev) => [...prev, sampleTable]);
+      initializeTableHistory(sampleTable);
+      activateTable(sampleName, sampleTable);
     },
     [activeTable, initializeTableHistory, activateTable]
   );
@@ -2942,6 +2917,11 @@ export function App(): React.ReactElement {
   }, [finishQcClose, activateTable]);
 
   const handleQcExported = useCallback(async (tableNames: string[], fullData: boolean) => {
+    const names = tableNames.map((name) => {
+      const table = tablesRef.current.find((item) => item.tableName === name);
+      return table ? getDisplayFileName(table) : name;
+    });
+    setExportNotice(`Exported ${names.join(", ")}${fullData ? " (all rows and columns)" : " (current view)"}.`);
     if (!fullData) return;
 
     const remaining = new Set(qcDirtyTablesRef.current);
@@ -3042,6 +3022,13 @@ export function App(): React.ReactElement {
           </div>
         </div>
       )}
+      {exportNotice && (
+        <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: "var(--surface-color)", flexShrink: 0 }}>
+          <Icon icon="tick-circle" intent={Intent.SUCCESS} />
+          <span style={{ flex: 1 }}>{exportNotice}</span>
+          <Button minimal small icon="cross" aria-label="Dismiss export confirmation" onClick={() => setExportNotice(null)} />
+        </div>
+      )}
       <div className="main-layout">
         <div className={`sidebar-shell${sidebarVisible ? " sidebar-shell-open" : " sidebar-shell-collapsed"}${documentWorkspaceActive ? " sidebar-shell-document" : ""}${jsonWorkspaceActive ? " sidebar-shell-json" : ""}${pdfWorkspaceActive ? " sidebar-shell-pdf" : ""}`}>
           <div className="sidebar-shell-panel" aria-hidden={!sidebarVisible}>
@@ -3049,6 +3036,7 @@ export function App(): React.ReactElement {
               tables={tables}
               activeTable={activeTable}
               schema={schema}
+              filtersApplied={hasActiveFilters(viewState.filters)}
               visibleColumns={viewState.visibleColumns}
               columnOrder={viewState.columnOrder}
               sortColumns={viewState.sortColumns}

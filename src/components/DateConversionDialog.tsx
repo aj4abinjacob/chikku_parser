@@ -21,6 +21,7 @@ import {
 } from "../utils/dateDetection";
 import { PreviewTableDialog } from "./PreviewTableDialog";
 import { SearchableColumnSelect } from "./SearchableColumnSelect";
+import { AsyncActionGate, columnNameExists, errorMessage, suggestColumnName } from "../utils/operationUX";
 
 function escapeIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -54,7 +55,8 @@ interface DateConversionDialogProps {
   activeTable: string | null;
   schema: ColumnInfo[];
   tables: LoadedTable[];
-  onApply: (sql: string, description?: string) => void;
+  filtersApplied: boolean;
+  onApply: (sql: string, description?: string) => Promise<void>;
 }
 
 const MAX_DISPLAY_GROUPS = 50;
@@ -66,6 +68,7 @@ export function DateConversionDialog({
   activeTable,
   schema,
   tables,
+  filtersApplied,
   onApply,
 }: DateConversionDialogProps): React.ReactElement {
   // Section 1: Date column & group-by
@@ -84,7 +87,7 @@ export function DateConversionDialog({
     outputFormatPreset === "custom" ? customOutputFormat : outputFormatPreset;
 
   // Section 4: Result mode
-  const [resultMode, setResultMode] = useState<"replace" | "new">("replace");
+  const [resultMode, setResultMode] = useState<"replace" | "new">("new");
   const [newColumnName, setNewColumnName] = useState("");
 
   // Preview
@@ -96,6 +99,14 @@ export function DateConversionDialog({
   // General
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"preview" | "apply" | null>(null);
+  const actionGate = useRef(new AsyncActionGate());
+  const activeFile = tables.find((table) => table.tableName === activeTable);
+  const fileName = activeFile && !activeFile.filePath.startsWith("(")
+    ? activeFile.filePath.split(/[/\\]/).pop() || activeTable : activeTable;
+  const columnNames = schema.map((column) => column.column_name);
+  const invalidTarget = resultMode === "new" && (!newColumnName.trim() || columnNameExists(columnNames, newColumnName));
+  const handleClose = () => { if (!actionGate.current.pending) onClose(); };
 
   // Debounce ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,7 +125,7 @@ export function DateConversionDialog({
       setDetectionError(null);
       setOutputFormatPreset("%Y-%m-%d");
       setCustomOutputFormat("");
-      setResultMode("replace");
+      setResultMode("new");
       setNewColumnName("");
       setPreviewRows(null);
       setPreviewColumns([]);
@@ -122,15 +133,29 @@ export function DateConversionDialog({
       setPreviewNullCount(null);
       setError(null);
       setRunning(false);
+      setPendingAction(null);
     }
   }, [isOpen, activeTable]);
 
-  // Update default new column name when date column changes
+  // Refresh untouched suggestions when the source schema changes; preserve typed names.
+  const suggestedName = useRef<string | null>(null);
+  const suggestionContext = useRef<string | null>(null);
   useEffect(() => {
-    if (dateColumn) {
-      setNewColumnName(`${dateColumn}_converted`);
+    if (!isOpen || !dateColumn) {
+      suggestionContext.current = null;
+      return;
     }
-  }, [dateColumn]);
+    const next = suggestColumnName(schema.map((column) => column.column_name), `${dateColumn}_converted`);
+    const context = JSON.stringify([activeTable, dateColumn]);
+    if (suggestionContext.current !== context) {
+      setNewColumnName(next);
+      suggestionContext.current = context;
+    } else {
+      const previous = suggestedName.current;
+      setNewColumnName((current) => current === previous ? next : current);
+    }
+    suggestedName.current = next;
+  }, [isOpen, activeTable, dateColumn, schema]);
 
   // ── Detection logic ──────────────────────────────────────────────
 
@@ -240,7 +265,7 @@ export function DateConversionDialog({
   );
 
   const buildSQL = useCallback((): string | null => {
-    if (!activeTable || !dateColumn || groupDetections.length === 0) return null;
+    if (!activeTable || !dateColumn || groupDetections.length === 0 || invalidTarget) return null;
 
     const outFmt = outputFormat;
     if (!outFmt) return null;
@@ -297,82 +322,93 @@ export function DateConversionDialog({
     newColumnName,
     schema,
     buildConversionExpr,
+    invalidTarget,
   ]);
 
   // ── Preview ──────────────────────────────────────────────────────
 
   const handlePreview = useCallback(async () => {
+    if (actionGate.current.pending) return;
     const sql = buildSQL();
     if (!sql) {
       setError("Cannot build conversion SQL. Ensure a format is detected/selected.");
       return;
     }
 
-    setRunning(true);
-    setError(null);
+    await actionGate.current.run(async () => {
+      setRunning(true);
+      setPendingAction("preview");
+      setError(null);
 
-    try {
-      // Extract the SELECT part (strip CREATE OR REPLACE TABLE ... AS )
-      const selectMatch = sql.match(/AS\s+(SELECT\s+.+)$/is);
-      if (!selectMatch) {
-        setError("Could not extract SELECT from generated SQL.");
+      try {
+        // Extract the SELECT part (strip CREATE OR REPLACE TABLE ... AS )
+        const selectMatch = sql.match(/AS\s+(SELECT\s+.+)$/is);
+        if (!selectMatch) {
+          setError("Could not extract SELECT from generated SQL.");
+          setRunning(false);
+          return;
+        }
+        const selectSql = selectMatch[1];
+
+        const rows = await window.api.query(`${selectSql} LIMIT 200`);
+        if (rows.length > 0) {
+          setPreviewColumns(Object.keys(rows[0]));
+        } else {
+          setPreviewColumns([]);
+        }
+        setPreviewRows(rows);
+
+        // Count NULLs in the target column
+        const targetCol =
+          resultMode === "new"
+            ? (newColumnName.trim() || `${dateColumn}_converted`)
+            : dateColumn;
+        const nullCountSql = `SELECT COUNT(*) AS cnt FROM (${selectSql}) WHERE ${escapeIdent(targetCol)} IS NULL`;
+        const nullResult = await window.api.query(nullCountSql);
+        setPreviewNullCount(Number(nullResult[0]?.cnt ?? 0));
+
+        setPreviewOpen(true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
         setRunning(false);
-        return;
+        setPendingAction(null);
       }
-      const selectSql = selectMatch[1];
-
-      const rows = await window.api.query(`${selectSql} LIMIT 200`);
-      if (rows.length > 0) {
-        setPreviewColumns(Object.keys(rows[0]));
-      } else {
-        setPreviewColumns([]);
-      }
-      setPreviewRows(rows);
-
-      // Count NULLs in the target column
-      const targetCol =
-        resultMode === "new"
-          ? (newColumnName.trim() || `${dateColumn}_converted`)
-          : dateColumn;
-      const nullCountSql = `SELECT COUNT(*) AS cnt FROM (${selectSql}) WHERE ${escapeIdent(targetCol)} IS NULL`;
-      const nullResult = await window.api.query(nullCountSql);
-      setPreviewNullCount(Number(nullResult[0]?.cnt ?? 0));
-
-      setPreviewOpen(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-    }
+    });
   }, [buildSQL, resultMode, newColumnName, dateColumn]);
 
   // ── Apply ────────────────────────────────────────────────────────
 
   const handleApply = useCallback(async () => {
+    if (actionGate.current.pending) return;
     const sql = buildSQL();
     if (!sql) {
       setError("Cannot build conversion SQL. Ensure a format is detected/selected.");
       return;
     }
 
-    setRunning(true);
-    setError(null);
+    await actionGate.current.run(async () => {
+      setRunning(true);
+      setPendingAction("apply");
+      setError(null);
 
-    try {
-      const targetName = resultMode === "new" ? (newColumnName.trim() || `${dateColumn}_converted`) : dateColumn;
-      onApply(sql, `Date conversion on "${dateColumn}"${resultMode === "new" ? ` → "${targetName}"` : ""}`);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-    }
-  }, [buildSQL, onApply, onClose]);
+      try {
+        const targetName = resultMode === "new" ? (newColumnName.trim() || `${dateColumn}_converted`) : dateColumn;
+        await onApply(sql, `Date conversion on "${dateColumn}"${resultMode === "new" ? ` → "${targetName}"` : ""}`);
+        onClose();
+      } catch (err) {
+        setError(`Conversion failed. ${errorMessage(err)} Your settings are preserved. Review them and retry.`);
+      } finally {
+        setRunning(false);
+        setPendingAction(null);
+      }
+    });
+  }, [buildSQL, onApply, onClose, resultMode, newColumnName, dateColumn]);
 
   // ── Validation ───────────────────────────────────────────────────
 
   const hasFormats = groupDetections.length > 0 && groupDetections.every((g) => g.selectedFormat);
-  const canRun = !!dateColumn && hasFormats && !!outputFormat;
+  const canRun = !!dateColumn && hasFormats && !!outputFormat && !invalidTarget && !detecting && !!activeFile;
 
   // Available columns (all columns for group-by, all for date)
   const dateColumns = schema;
@@ -406,14 +442,24 @@ export function DateConversionDialog({
   return (
     <Dialog
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
+      canEscapeKeyClose={!running}
+      isCloseButtonShown={!running}
       title="Date Conversion"
       icon="calendar"
       style={{ width: 820, maxWidth: "92vw" }}
       canOutsideClickClose={false}
     >
       <DialogBody>
-        <div className="aggregate-dialog-content">
+        <Callout icon="database" style={{ marginBottom: 12 }}>
+          <strong>{fileName}</strong> · Entire file · {(activeFile?.rowCount ?? 0).toLocaleString()} rows.
+        </Callout>
+        {filtersApplied && (
+          <Callout intent={Intent.WARNING} icon="filter" style={{ marginBottom: 12 }}>
+            Filters are active in the table. Date conversion includes hidden rows and applies to the entire file.
+          </Callout>
+        )}
+        <fieldset className="aggregate-dialog-content" disabled={running} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
           {/* Section 1: Date Column & Group By */}
           <div className="aggregate-section">
             <div className="aggregate-section-header">Date Column</div>
@@ -604,11 +650,21 @@ export function DateConversionDialog({
                     value={newColumnName}
                     onChange={(e) => setNewColumnName(e.target.value)}
                     placeholder="New column name"
+                    intent={invalidTarget ? Intent.DANGER : Intent.NONE}
                     small
                   />
                 )}
               </div>
             </div>
+          )}
+
+          {dateColumn && (
+            <Callout icon={resultMode === "new" ? "add-column-right" : "warning-sign"} intent={resultMode === "new" ? Intent.NONE : Intent.WARNING}>
+              {resultMode === "new"
+                ? `Creates new column "${newColumnName.trim()}" in ${fileName}; the source column is preserved.`
+                : `Overwrites "${dateColumn}" in ${fileName} on every row.`}
+              {invalidTarget && " Enter a unique column name."}
+            </Callout>
           )}
 
           {/* NULL parse warning */}
@@ -626,7 +682,7 @@ export function DateConversionDialog({
 
           {/* Error */}
           {error && (
-            <Callout intent={Intent.DANGER} icon="error" style={{ marginTop: 10 }}>
+            <Callout intent={Intent.DANGER} icon="error" role="alert" style={{ marginTop: 10 }}>
               {error}
             </Callout>
           )}
@@ -639,27 +695,27 @@ export function DateConversionDialog({
             rows={previewRows ?? []}
             columns={previewColumns}
           />
-        </div>
+        </fieldset>
       </DialogBody>
       <DialogFooter
         actions={
           <>
-            <Button text="Close" onClick={onClose} />
+            <Button text="Close" onClick={handleClose} disabled={running} />
             <Button
               intent={Intent.PRIMARY}
               text="Preview"
               icon="eye-open"
               onClick={handlePreview}
-              disabled={!canRun}
-              loading={running}
+              disabled={!canRun || running}
+              loading={running && pendingAction === "preview"}
             />
             <Button
               intent={Intent.SUCCESS}
-              text="Apply"
+              text={pendingAction === "apply" ? "Applying..." : error ? "Retry Apply" : "Apply"}
               icon="tick"
               onClick={handleApply}
-              disabled={!canRun}
-              loading={running}
+              disabled={!canRun || running}
+              loading={running && pendingAction === "apply"}
             />
           </>
         }

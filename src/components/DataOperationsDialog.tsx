@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Button,
   Callout,
@@ -23,6 +23,7 @@ import {
 } from "../utils/numberInputWheel";
 import { SearchableColumnSelect } from "./SearchableColumnSelect";
 import { ColumnCheckList, ColumnCheckItem } from "./ColumnCheckList";
+import { AsyncActionGate, columnNameExists, errorMessage, suggestColumnName } from "../utils/operationUX";
 
 type OpType =
   | "substring"
@@ -68,8 +69,11 @@ interface DataOperationsDialogProps {
   onClose: () => void;
   activeTable: string | null;
   schema: ColumnInfo[];
-  onApply: (sql: string, description?: string, columnRenames?: Record<string, string>) => void;
-  onSampleTable: (n: number, isPercent: boolean) => void;
+  fileName: string;
+  totalRows: number;
+  filtersApplied: boolean;
+  onApply: (sql: string, description?: string, columnRenames?: Record<string, string>) => Promise<void>;
+  onSampleTable: (n: number, isPercent: boolean) => Promise<void>;
 }
 
 export function DataOperationsDialog({
@@ -77,6 +81,9 @@ export function DataOperationsDialog({
   onClose,
   activeTable,
   schema,
+  fileName,
+  totalRows,
+  filtersApplied,
   onApply,
   onSampleTable,
 }: DataOperationsDialogProps): React.ReactElement {
@@ -100,7 +107,37 @@ export function DataOperationsDialog({
   const [previews, setPreviews] = useState<Array<{ original: string; result: string }>>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [dedupPreview, setDedupPreview] = useState<{ before: number; after: number } | null>(null);
-  const [targetMode, setTargetMode] = useState<ColOpTargetMode>("replace");
+  const [targetMode, setTargetMode] = useState<ColOpTargetMode>("new_column");
+
+  const actionGate = useRef(new AsyncActionGate());
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const columnNames = schema.map((column) => column.column_name);
+  const newTargetInvalid = !targetCol.trim() || columnNameExists(columnNames, targetCol);
+  const suggestedName = useRef<string | null>(null);
+  const suggestionContext = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      suggestionContext.current = null;
+      return;
+    }
+    const base = opType === "substring" ? `${sourceCol || "text"}_substring`
+      : opType === "custom_sql" ? `${sourceCol || "value"}_transformed`
+      : opType === "combine_columns" ? "combined"
+      : opType === "conditional_column" ? "condition_result" : "new_column";
+    const next = suggestColumnName(schema.map((column) => column.column_name), base);
+    const context = JSON.stringify([activeTable, sourceCol, opType]);
+    if (suggestionContext.current !== context) {
+      setTargetCol(next);
+      setTargetMode("new_column");
+      suggestionContext.current = context;
+    } else {
+      const previous = suggestedName.current;
+      setTargetCol((current) => current === previous ? next : current);
+    }
+    suggestedName.current = next;
+  }, [isOpen, activeTable, sourceCol, opType, schema]);
 
   // Build a lookup map from schema for column types
   const colTypeMap = React.useMemo(() => {
@@ -391,26 +428,24 @@ export function DataOperationsDialog({
     setPreviews([]);
     setPreviewError(null);
     setDedupPreview(null);
-    setTargetMode("replace");
+    setTargetMode("new_column");
+    setApplyError(null);
   };
 
-  const handleApply = () => {
-    if (!activeTable) return;
+  const applyOperation = async () => {
+    if (!activeTable) throw new Error("Select a file before applying an operation.");
 
     // sample_table: delegate to onSampleTable callback
     if (opType === "sample_table") {
       const n = Number(param1);
-      if (!n || n <= 0) return;
-      if (sampleMode === "percent" && n > 100) return;
-      onSampleTable(n, sampleMode === "percent");
-      onClose();
-      resetForm();
+      if (!Number.isFinite(n) || n <= 0 || (sampleMode === "percent" && n > 100)) throw new Error("Enter a valid sample size.");
+      await onSampleTable(n, sampleMode === "percent");
       return;
     }
 
     // remove_duplicates: build dedup SQL
     if (opType === "remove_duplicates") {
-      if (dedupColumns.length === 0) return;
+      if (dedupColumns.length === 0) throw new Error("Select key columns before removing duplicates.");
       // CTE that converts empty strings to NULL for all VARCHAR columns
       const cleanedCols = schema.map((col) => {
         const isVarchar = /^(VARCHAR|TEXT|STRING|CHAR)/i.test(col.column_type);
@@ -425,9 +460,7 @@ export function DataOperationsDialog({
         return isVarchar ? `NULLIF("${col}", '')` : `"${col}"`;
       }).join(", ");
       const finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS WITH cleaned AS (SELECT ${cleanedCols} FROM "${activeTable}") SELECT * FROM cleaned QUALIFY row_number() OVER (PARTITION BY ${partitionCols}) = 1`;
-      onApply(finalSql, `${OP_LABELS[opType]} on ${dedupColumns.map(c => `"${c}"`).join(", ")}`);
-      onClose();
-      resetForm();
+      await onApply(finalSql, `${OP_LABELS[opType]} on ${dedupColumns.map(c => `"${c}"`).join(", ")}`);
       return;
     }
 
@@ -450,9 +483,7 @@ export function DataOperationsDialog({
       const allCols = schema.map((c) => `"${c.column_name}"`).join(", ");
       const finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT ${allCols} FROM "${activeTable}" ${whereClause}`;
       const modeLabel = removeEmptyMode === "any" ? "any" : "all";
-      onApply(finalSql, `${OP_LABELS[opType]} [${modeLabel}] on ${cols.length} column(s)`);
-      onClose();
-      resetForm();
+      await onApply(finalSql, `${OP_LABELS[opType]} [${modeLabel}] on ${cols.length} column(s)`);
       return;
     }
 
@@ -473,9 +504,7 @@ export function DataOperationsDialog({
         return `"${col.column_name}"`;
       }).join(", ");
       const finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT ${cols} FROM "${activeTable}"`;
-      onApply(finalSql, `${OP_LABELS[opType]} on ${targetCols.length} column(s)`);
-      onClose();
-      resetForm();
+      await onApply(finalSql, `${OP_LABELS[opType]} on ${targetCols.length} column(s)`);
       return;
     }
 
@@ -497,9 +526,7 @@ export function DataOperationsDialog({
         return `"${col.column_name}"`;
       }).join(", ");
       const finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT ${cols} FROM "${activeTable}"`;
-      onApply(finalSql, `${OP_LABELS[opType]} on ${targetCols.length} column(s)`);
-      onClose();
-      resetForm();
+      await onApply(finalSql, `${OP_LABELS[opType]} on ${targetCols.length} column(s)`);
       return;
     }
 
@@ -508,7 +535,7 @@ export function DataOperationsDialog({
 
     if (opType === "rename_column") {
       const validRows = renameRows.filter((r) => r.sourceCol && r.newName.trim());
-      if (validRows.length === 0) return;
+      if (validRows.length === 0) throw new Error("Enter at least one new column name.");
       const renameMap = new Map(validRows.map((r) => [r.sourceCol, r.newName.trim()]));
       const cols = schema
         .map((c) => {
@@ -519,7 +546,7 @@ export function DataOperationsDialog({
       finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT ${cols} FROM "${activeTable}"`;
       description = `${OP_LABELS[opType]}: ${validRows.map(r => `"${r.sourceCol}" → "${r.newName.trim()}"`).join(", ")}`;
     } else if (opType === "delete_column") {
-      if (deleteColumns.length === 0 || deleteColumns.length >= schema.length) return;
+      if (deleteColumns.length === 0 || deleteColumns.length >= schema.length) throw new Error("Select columns to delete and leave at least one column.");
       const otherCols = schema
         .filter((c) => !deleteColumns.includes(c.column_name))
         .map((c) => `"${c.column_name}"`)
@@ -527,36 +554,36 @@ export function DataOperationsDialog({
       finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT ${otherCols} FROM "${activeTable}"`;
       description = `${OP_LABELS[opType]}: ${deleteColumns.map(c => `"${c}"`).join(", ")}`;
     } else if (opType === "create_column") {
-      if (!targetCol) return;
-      const valueExpr = param1 || "NULL";
-      finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${valueExpr} AS "${targetCol}" FROM "${activeTable}"`;
+      if (newTargetInvalid) throw new Error("Enter a unique new column name.");
+      const valueExpr = param1.trim() || "NULL";
+      finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${valueExpr} AS "${targetCol.trim()}" FROM "${activeTable}"`;
       description = `${OP_LABELS[opType]} "${targetCol}"`;
     } else if (opType === "combine_columns") {
-      if (combineSourceCols.length < 2 || !targetCol) return;
+      if (combineSourceCols.length < 2 || newTargetInvalid) throw new Error("Select two source columns and enter a unique new column name.");
       const concatExpr = buildCombineExpression(combineSourceCols, param1);
-      finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${concatExpr} AS "${targetCol}" FROM "${activeTable}"`;
+      finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${concatExpr} AS "${targetCol.trim()}" FROM "${activeTable}"`;
       description = `${OP_LABELS[opType]} → "${targetCol}"`;
     } else if (opType === "conditional_column") {
-      if (!targetCol) return;
+      if (newTargetInvalid) throw new Error("Enter a unique new column name.");
       const caseExpr = buildCaseExpression(caseConditions, caseDefault);
-      if (!caseExpr) return;
-      finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${caseExpr} AS "${targetCol}" FROM "${activeTable}"`;
+      if (!caseExpr) throw new Error("Enter a complete condition and its result.");
+      finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${caseExpr} AS "${targetCol.trim()}" FROM "${activeTable}"`;
       description = `${OP_LABELS[opType]} "${targetCol}"`;
     } else {
-      if (!sourceCol) return;
+      if (!columnNames.includes(sourceCol)) throw new Error("Select an available source column.");
       const expr = buildExpression(opType, sourceCol, param1, param2);
-      if (!expr) return;
+      if (!expr?.trim()) throw new Error("Enter a SQL expression before applying.");
 
       // Only extract-type ops support target mode; others always replace source
       const hasTargetMode = opType === "substring" || opType === "custom_sql";
       const effectiveMode = hasTargetMode ? targetMode : "replace";
-      const effectiveTarget = hasTargetMode ? targetCol : "";
+      const effectiveTarget = hasTargetMode ? targetCol.trim() : "";
 
       if (effectiveMode === "new_column") {
-        if (!effectiveTarget) return;
+        if (newTargetInvalid) throw new Error("Enter a unique new column name.");
         finalSql = `CREATE OR REPLACE TABLE "${activeTable}" AS SELECT *, ${expr} AS "${effectiveTarget}" FROM "${activeTable}"`;
       } else if (effectiveMode === "existing_column") {
-        if (!effectiveTarget) return;
+        if (!columnNames.includes(effectiveTarget)) throw new Error("Select an available target column.");
         // Replace existing column value in-place (preserving column position)
         const cols = schema
           .map((c) =>
@@ -577,14 +604,30 @@ export function DataOperationsDialog({
       description = `${OP_LABELS[opType]} on "${sourceCol}"${effectiveTarget ? ` → "${effectiveTarget}"` : ""}`;
     }
 
-    onApply(finalSql, description, opType === "rename_column"
+    await onApply(finalSql, description, opType === "rename_column"
       ? Object.fromEntries(renameRows.filter((row) => row.sourceCol && row.newName.trim()).map((row) => [row.sourceCol, row.newName.trim()]))
       : undefined);
-    onClose();
-    resetForm();
+  };
+
+  const handleApply = async () => {
+    if (actionGate.current.pending || applyDisabled || !activeTable) return;
+    await actionGate.current.run(async () => {
+      setApplying(true);
+      setApplyError(null);
+      try {
+        await applyOperation();
+        onClose();
+        resetForm();
+      } catch (error) {
+        setApplyError(errorMessage(error));
+      } finally {
+        setApplying(false);
+      }
+    });
   };
 
   const handleClose = () => {
+    if (actionGate.current.pending) return;
     onClose();
     resetForm();
   };
@@ -595,31 +638,32 @@ export function DataOperationsDialog({
     opType === "delete_column"
       ? deleteColumns.length === 0 || deleteColumns.length >= schema.length
       : opType === "create_column"
-      ? !targetCol
+      ? newTargetInvalid
       : opType === "combine_columns"
-      ? combineSourceCols.length < 2 || !targetCol
+      ? combineSourceCols.length < 2 || newTargetInvalid
       : opType === "rename_column"
       ? validRenameCount === 0
       : opType === "sample_table"
-      ? !param1 || Number(param1) <= 0 || (sampleMode === "percent" && Number(param1) > 100)
+      ? !param1 || !Number.isFinite(Number(param1)) || Number(param1) <= 0 || (sampleMode === "percent" && Number(param1) > 100)
       : opType === "remove_duplicates"
       ? dedupColumns.length === 0
       : opType === "conditional_column"
-      ? !targetCol || validConditionCount === 0
+      ? newTargetInvalid || validConditionCount === 0
       : opType === "remove_empty_rows" || opType === "replace_empty_null" || opType === "replace_sentinel_null"
       ? false
-      : !sourceCol
-        || ((opType === "substring" || opType === "custom_sql") && targetMode === "new_column" && (!targetCol.trim() || schema.some((c) => c.column_name === targetCol.trim())))
-        || ((opType === "substring" || opType === "custom_sql") && targetMode === "existing_column" && !targetCol);
+      : !columnNames.includes(sourceCol)
+        || (opType === "custom_sql" && !param1.trim())
+        || ((opType === "substring" || opType === "custom_sql") && targetMode === "new_column" && newTargetInvalid)
+        || ((opType === "substring" || opType === "custom_sql") && targetMode === "existing_column" && !columnNames.includes(targetCol));
 
   const sourceSummary = sourceCol ? `${sourceCol}${colTypeMap.get(sourceCol) ? ` (${colTypeMap.get(sourceCol)})` : ""}` : "No source selected";
   const targetSummary = (() => {
     if (opType === "create_column" || opType === "combine_columns" || opType === "conditional_column") {
-      return targetCol ? `New column "${targetCol}"` : "New column not named";
+      return targetCol ? `New column "${targetCol.trim()}"${opType === "create_column" && !param1.trim() ? " (NULL values)" : ""}` : "New column not named";
     }
     if (opType === "substring" || opType === "custom_sql") {
-      if (targetMode === "new_column") return targetCol ? `New column "${targetCol}"` : "New column not named";
-      if (targetMode === "existing_column") return targetCol ? `Existing column "${targetCol}"` : "No target selected";
+      if (targetMode === "new_column") return targetCol ? `New column "${targetCol.trim()}"` : "New column not named";
+      if (targetMode === "existing_column") return targetCol ? `Overwrite existing column "${targetCol}"` : "No target selected";
       return sourceCol ? `Replace "${sourceCol}"` : "Replace source";
     }
     if (opType === "delete_column") return `${deleteColumns.length} column${deleteColumns.length !== 1 ? "s" : ""} selected`;
@@ -631,11 +675,11 @@ export function DataOperationsDialog({
     }
     if (opType === "replace_empty_null") {
       const count = emptyNullColumns.length || schema.filter((c) => isVarcharType(c.column_type)).length;
-      return `${count} text column${count !== 1 ? "s" : ""}`;
+      return `Overwrite values in ${count} text column${count !== 1 ? "s" : ""}`;
     }
     if (opType === "replace_sentinel_null") {
       const count = sentinelNullColumns.length || schema.filter((c) => isVarcharType(c.column_type)).length;
-      return `${count} text column${count !== 1 ? "s" : ""}`;
+      return `Overwrite values in ${count} text column${count !== 1 ? "s" : ""}`;
     }
     if (opType === "sample_table") return param1 ? `${param1}${sampleMode === "percent" ? "%" : " rows"}` : "Sample size not set";
     return "Current table";
@@ -646,12 +690,29 @@ export function DataOperationsDialog({
       isOpen={isOpen}
       onClose={handleClose}
       title="Data Operations"
+      canEscapeKeyClose={!applying}
+      canOutsideClickClose={!applying}
+      isCloseButtonShown={!applying}
       className="workbench-dialog data-operations-workbench-dialog"
       style={{ width: 860, maxWidth: "94vw" }}
     >
       <DialogBody className="workbench-dialog-body">
+        <Callout icon="database" style={{ marginBottom: 12 }}>
+          <strong>{fileName}</strong> · Entire file · {totalRows.toLocaleString()} rows.
+          {opType === "rename_column" || opType === "delete_column" ? " Changes affect whole columns." : ""}
+        </Callout>
+        {filtersApplied && (
+          <Callout intent={Intent.WARNING} icon="filter" style={{ marginBottom: 12 }}>
+            Filters are active in the table. This operation includes hidden rows and applies to the entire file.
+          </Callout>
+        )}
+        {applyError && (
+          <Callout intent={Intent.DANGER} icon="error" role="alert" style={{ marginBottom: 12 }}>
+            <strong>Operation failed.</strong> {applyError} Your settings are preserved. Review them and retry.
+          </Callout>
+        )}
         <div className="workbench-layout data-operations-workbench-layout">
-        <div className="column-op-form workbench-config">
+        <fieldset className="column-op-form workbench-config" disabled={applying} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
           <FormGroup label="Operation">
             <SoftSelect
               value={opType}
@@ -701,7 +762,7 @@ export function DataOperationsDialog({
                   onChange={(e) => {
                     const mode = (e.target as HTMLInputElement).value as ColOpTargetMode;
                     setTargetMode(mode);
-                    setTargetCol("");
+                    setTargetCol(mode === "new_column" ? suggestColumnName(columnNames, `${sourceCol || "value"}_${opType === "substring" ? "substring" : "transformed"}`) : "");
                   }}
                 >
                   <Radio label="Replace source" value="replace" />
@@ -715,7 +776,7 @@ export function DataOperationsDialog({
                   onChange={(e) => setTargetCol(e.target.value)}
                   placeholder="new_column"
                   style={{ marginTop: 6 }}
-                  intent={targetCol && schema.some((c) => c.column_name === targetCol.trim()) ? Intent.DANGER : Intent.NONE}
+                  intent={targetCol && columnNameExists(columnNames, targetCol) ? Intent.DANGER : Intent.NONE}
                 />
               )}
               {targetMode === "existing_column" && (
@@ -1197,7 +1258,7 @@ export function DataOperationsDialog({
             </FormGroup>
           )}
 
-        </div>
+        </fieldset>
         <aside className="workbench-sidecar data-operation-sidecar">
           <div className="workbench-sidecar-title">
             Preview
@@ -1243,6 +1304,8 @@ export function DataOperationsDialog({
           <div className="workbench-summary-block">
             <div className="workbench-summary-label">Impact Summary</div>
             <div className="workbench-summary-lines">
+              <div><span>File</span><strong>{fileName}</strong></div>
+              <div><span>Scope</span><strong>Entire file · {totalRows.toLocaleString()} rows</strong></div>
               <div>
                 <span>Operation</span>
                 <strong>{OP_LABELS[opType]}</strong>
@@ -1263,12 +1326,13 @@ export function DataOperationsDialog({
       <DialogFooter
         actions={
           <>
-            <Button onClick={handleClose} text="Cancel" />
+            <Button onClick={handleClose} text="Cancel" disabled={applying} />
             <Button
               intent={opType === "delete_column" ? Intent.DANGER : Intent.PRIMARY}
               onClick={handleApply}
-              text={opType === "delete_column" ? "Delete" : "Apply"}
-              disabled={applyDisabled}
+              text={applying ? "Applying..." : applyError ? "Retry" : opType === "delete_column" ? "Delete" : "Apply"}
+              loading={applying}
+              disabled={applyDisabled || applying}
             />
           </>
         }

@@ -12,6 +12,8 @@ import {
 import { SoftSelect } from "./SoftSelect";
 import { ColumnInfo, RowOpType, RowOpStep, UndoStrategy, FilterGroup, hasActiveFilters } from "../types";
 import { ColumnCheckList } from "./ColumnCheckList";
+import { buildRowOpPreviewQuery } from "../utils/rowOpsSQL";
+import { rowScopeLabel } from "../utils/operationUX";
 
 const OP_OPTIONS: { value: RowOpType; label: string; description: string }[] = [
   { value: "delete_filtered", label: "Delete Filtered Rows", description: "Remove rows that match the current filter" },
@@ -217,7 +219,6 @@ export function RowOpsPanel({
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasFilter = hasActiveFilters(activeFilters);
-  const isFiltered = unfilteredRows !== null;
   const needsFilter = FILTER_REQUIRED_OPS.has(opType);
   const needsColumns = COLUMN_SELECT_OPS.has(opType);
   const isDisabled = needsFilter && !hasFilter;
@@ -237,53 +238,25 @@ export function RowOpsPanel({
       return;
     }
 
+    let cancelled = false;
+    setPreviewCount(null);
     previewTimerRef.current = setTimeout(async () => {
       try {
-        if (opType === "delete_filtered" && hasFilter) {
-          setPreviewCount(totalRows);
-        } else if (opType === "keep_filtered" && hasFilter) {
-          const total = unfilteredRows ?? totalRows;
-          setPreviewCount(total - totalRows);
-        } else if (opType === "remove_empty") {
-          const cols = selectedColumns.size > 0
-            ? Array.from(selectedColumns)
-            : columns.map((c) => c.column_name);
-          const conditions = cols.map((colName) => {
-            const col = columns.find((c) => c.column_name === colName);
-            const ident = `"${colName.replace(/"/g, '""')}"`;
-            const colType = col?.column_type?.toUpperCase() ?? "";
-            const isVarchar = colType.startsWith("VARCHAR") || colType === "TEXT" || colType === "STRING";
-            if (isVarchar) {
-              return `(${ident} IS NULL OR TRIM(CAST(${ident} AS VARCHAR)) = '')`;
-            }
-            return `${ident} IS NULL`;
-          });
-          const joiner = emptyMode === "any" ? " OR " : " AND ";
-          const escapedTable = `"${activeTable.replace(/"/g, '""')}"`;
-          const sql = `SELECT COUNT(*) as cnt FROM ${escapedTable} WHERE ${conditions.join(joiner)}`;
-          const rows = await window.api.query(sql);
-          setPreviewCount(Number(rows[0]?.cnt ?? 0));
-        } else if (opType === "remove_duplicates") {
-          const cols = selectedColumns.size > 0
-            ? Array.from(selectedColumns)
-            : columns.map((c) => c.column_name);
-          const partitionCols = cols.map((c) => `"${c.replace(/"/g, '""')}"`).join(", ");
-          const escapedTable = `"${activeTable.replace(/"/g, '""')}"`;
-          const sql = `SELECT COUNT(*) as cnt FROM (SELECT *, row_number() OVER (PARTITION BY ${partitionCols}) as __rn FROM ${escapedTable}) WHERE __rn > 1`;
-          const rows = await window.api.query(sql);
-          setPreviewCount(Number(rows[0]?.cnt ?? 0));
-        } else {
-          setPreviewCount(null);
-        }
+        const sql = buildRowOpPreviewQuery(activeTable, opType, {
+          columns: JSON.stringify(Array.from(selectedColumns)), emptyMode,
+        }, activeFilters, columns);
+        const rows = await window.api.query(sql);
+        if (!cancelled) setPreviewCount(Number(rows[0]?.cnt ?? 0));
       } catch {
-        setPreviewCount(null);
+        if (!cancelled) setPreviewCount(null);
       }
     }, 400);
 
     return () => {
+      cancelled = true;
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     };
-  }, [opType, activeTable, totalRows, unfilteredRows, hasFilter, selectedColumns, columns, visible, isDisabled, emptyMode]);
+  }, [opType, activeTable, totalRows, unfilteredRows, hasFilter, selectedColumns, columns, visible, isDisabled, emptyMode, activeFilters]);
 
   const handleApply = async () => {
     setConfirmOpen(false);
@@ -385,16 +358,11 @@ export function RowOpsPanel({
             </Tag>
             <span className="rowops-status-detail" title={statusInfo.detail}>{statusInfo.detail}</span>
           </div>
-          {isFiltered && (
-            <Tag minimal icon="filter" intent={Intent.PRIMARY} className="rowops-scope-tag">
-              {totalRows.toLocaleString()} of {unfilteredRows!.toLocaleString()} rows
-            </Tag>
-          )}
-          {!isFiltered && (
-            <Tag minimal icon="database" className="rowops-scope-tag rowops-scope-all">
-              All {totalRows.toLocaleString()} rows
-            </Tag>
-          )}
+          <Tag minimal icon={hasFilter ? "filter" : "database"} intent={hasFilter ? Intent.PRIMARY : undefined} className="rowops-scope-tag">
+            {opType === "keep_filtered"
+              ? `Keep ${rowScopeLabel(hasFilter, totalRows, unfilteredRows)}`
+              : rowScopeLabel(hasFilter, totalRows, unfilteredRows)}
+          </Tag>
         </div>
         <div className="rowops-toolbar-actions">
           <Button

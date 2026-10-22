@@ -20,6 +20,7 @@ interface SidebarProps {
   tables: LoadedTable[];
   activeTable: string | null;
   schema: ColumnInfo[];
+  filtersApplied: boolean;
   visibleColumns: string[];
   columnOrder: string[];
   sortColumns: SortColumn[];
@@ -33,8 +34,8 @@ interface SidebarProps {
   pivotConfig: PivotViewConfig | null;
   onPivotGroup: (column: string, addLevel: boolean) => void;
   onClearPivotGroups: () => void;
-  onDataOperation: (sql: string, description?: string, columnRenames?: Record<string, string>) => void;
-  onSampleTable: (n: number, isPercent: boolean) => void;
+  onDataOperation: (sql: string, description?: string, columnRenames?: Record<string, string>) => Promise<void>;
+  onSampleTable: (n: number, isPercent: boolean) => Promise<void>;
   onDeleteTable: (tableName: string) => void;
   onCombine: (selectedNames: string[]) => void;
   onCreateAggregateTable: (sql: string) => void;
@@ -197,6 +198,7 @@ export function Sidebar({
   tables,
   activeTable,
   schema,
+  filtersApplied,
   visibleColumns,
   columnOrder,
   sortColumns,
@@ -1265,6 +1267,12 @@ export function Sidebar({
         onClose={() => setDataOpDialogOpen(false)}
         activeTable={activeTable}
         schema={schema}
+        fileName={(() => {
+          const file = tables.find((table) => table.tableName === activeTable);
+          return file && !file.filePath.startsWith("(") ? file.filePath.split(/[/\\]/).pop() || file.tableName : activeTable || "No file selected";
+        })()}
+        totalRows={tables.find((table) => table.tableName === activeTable)?.rowCount ?? 0}
+        filtersApplied={filtersApplied}
         onApply={onDataOperation}
         onSampleTable={onSampleTable}
       />
@@ -1300,6 +1308,7 @@ export function Sidebar({
         activeTable={activeTable}
         schema={schema}
         tables={comparableTables}
+        filtersApplied={filtersApplied}
         onApply={onDataOperation}
       />
     </div>
