@@ -3243,6 +3243,16 @@ export function App(): React.ReactElement {
                       ? (pivotQueryError ? { scope: "pivot", message: pivotQueryError } : null)
                       : chunkQueryError}
                     onQueryRetry={pivotActive ? retryPivotQuery : retryChunkQuery}
+                    filtersActive={hasActiveFilters(viewState.filters)}
+                    onClearFilters={() => handleFiltersChange({ logic: "AND", children: [] })}
+                    onShowColumns={() => {
+                      setViewState(prev => ({
+                        ...prev,
+                        visibleColumns: [...new Set([...prev.columnOrder, ...schema.map(column => column.column_name)])]
+                          .filter(column => schema.some(item => item.column_name === column)),
+                      }));
+                      setResetKey(key => key + 1);
+                    }}
                     linkPreviewsEnabled={linkPreviewsEnabled}
                   />
                   {filterPanelMounted && (

@@ -4243,13 +4243,112 @@ html, body, #root {
 .dg-view-toolbar {
   flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
   align-items: center;
   min-height: 32px;
   padding: 4px 10px;
   background: #fff;
   border-bottom: 1px solid #d8e1e8;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.data-grid-container {
+  min-width: 0;
+  min-height: 0;
+
+  &:focus-visible {
+    outline: 2px solid #137cbd;
+    outline-offset: -2px;
+  }
+}
+
+.dg-selection-hint {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 2px 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: #5c7080;
+}
+
+.dg-cell-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dg-wrap-text .dg-row .dg-cell-value,
+.dg-wrap-text .dg-row .dg-pivot-group-value,
+.dg-wrap-text .dg-pivot-grand-total-row .dg-cell-value {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  max-height: calc(var(--table-font-size, 13px) * 4.2);
+  white-space: pre-wrap;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.dg-query-state {
+  width: min(560px, calc(100% - 32px));
+  max-width: none;
+  flex-wrap: wrap;
+
+  > div {
+    flex: 1 1 170px;
+  }
+}
+
+.dg-value-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  margin: 24px 0;
+  overflow-y: auto;
+
+  .bp4-heading {
+    min-width: 0;
+  }
+}
+
+.dg-value-context {
+  margin: 0 0 16px;
+
+  > div {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr);
+    gap: 8px;
+    margin: 6px 0;
+  }
+
+  dt { color: #5c7080; }
+  dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+}
+
+.dg-value-label { display: block; margin-bottom: 6px; font-weight: 600; }
+.dg-value-text.bp4-input {
+  width: 100%;
+  height: clamp(120px, 35vh, 300px);
+  resize: vertical;
+  padding: 10px;
+  font: 13px/1.5 "SF Mono", Menlo, Monaco, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.dg-value-note { margin: 8px 0; font-size: 12px; color: #5c7080; }
+.dg-value-copy-status { min-height: 18px; font-size: 12px; }
+
+.bp4-dark {
+  .dg-selection-hint,
+  .dg-value-context dt,
+  .dg-value-note { color: @dark-text-3; }
+
+  .data-grid-container:focus-visible { outline-color: @dark-accent; }
 }
 
 .dg-view-settings-popover .bp4-popover2-content {
@@ -14845,6 +14944,9 @@ button.dg-stats-metric {
     gap: 1px;
     cursor: pointer;
     padding: 1px 3px;
+    min-height: 24px;
+    border: 0;
+    background: transparent;
     border-radius: var(--control-radius);
     color: #8a9ba8;
     transition: background 0.12s, color 0.12s;
@@ -14857,6 +14959,11 @@ button.dg-stats-metric {
     &.active {
       background: rgba(19, 124, 189, 0.1);
       color: #137cbd;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #137cbd;
+      outline-offset: 1px;
     }
   }
 

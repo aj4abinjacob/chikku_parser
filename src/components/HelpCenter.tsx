@@ -89,7 +89,7 @@ const HELP_TOPICS: HelpTopic[] = [
     category: "Tabular data",
     summary: "Navigate large datasets, select cells, inspect columns, sort, and group.",
     icon: "panel-table",
-    keywords: ["grid", "columns", "copy", "stats", "sort", "group", "resize", "reorder", "url", "link", "live preview"],
+    keywords: ["grid", "columns", "copy", "stats", "sort", "group", "resize", "reorder", "wrap", "fit", "inspect", "raw value", "url", "link", "live preview"],
     sections: [
       {
         title: "Grid basics",
@@ -97,7 +97,9 @@ const HELP_TOPICS: HelpTopic[] = [
           "Scroll through large files without loading every row into the interface at once.",
           "Click and drag to select cells, then use Cmd/Ctrl+C to copy the selection as tab-separated text.",
           "Use the sort button in a column header to sort. Shift-click the button to add another sort level.",
-          "Drag column headers to reorder them, or drag a header edge to resize it. Double-click the edge to auto-fit.",
+          "Drag column headers to reorder them, or drag a header edge to resize it. Fit columns sizes headers and loaded row samples, with a limit for long text. Compact restores narrow widths. Double-click a header edge to fit that column or restore its compact width.",
+          "Select Wrap text above the grid for up to three lines per cell. Use arrow keys to move the selected cell, and Shift+arrow keys to select a range.",
+          "Select a cell and choose Inspect value, press Enter, or double-click the cell to read and copy its complete raw value. The inspector shows the full column name, row number, and value type; nulls and empty strings are labeled separately.",
         ],
       },
       {
