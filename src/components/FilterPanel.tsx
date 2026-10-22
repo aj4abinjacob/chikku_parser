@@ -46,6 +46,8 @@ import {
 import { buildDistinctFilterValuesQuery, buildFilterGroupClause, escapeIdent } from "../utils/sqlBuilder";
 import { mergeFilterListValues } from "../utils/filterValues";
 
+import { WorkbenchTab, WorkbenchRequest, WorkbenchHeights, getWorkbenchPanelHeight, getWorkbenchHeightLimits } from "../utils/workbenchPanel";
+
 type ColumnKind = "text" | "number" | "date" | "boolean" | "comparison_status" | "unknown";
 type OperatorOption = { value: FilterOperator; label: string };
 type OperatorGroupOption = { label: string; options: OperatorOption[] };
@@ -131,20 +133,6 @@ const NO_VALUE_OPS = new Set<FilterOperator>([
   "IS MISSING",
   "IS PRESENT",
 ]);
-
-const MIN_PANEL_HEIGHT = 80;
-const MAX_PANEL_HEIGHT = 500;
-const DEFAULT_PANEL_HEIGHT = 260;
-const MIN_QC_PANEL_HEIGHT = 320;
-const QC_PANEL_VIEWPORT_RATIO = 0.48;
-
-function getQcPanelHeight(): number {
-  if (typeof window === "undefined") return MIN_QC_PANEL_HEIGHT;
-  return Math.min(
-    MAX_PANEL_HEIGHT,
-    Math.max(MIN_QC_PANEL_HEIGHT, Math.round(window.innerHeight * QC_PANEL_VIEWPORT_RATIO))
-  );
-}
 
 // ── Draft types with IDs for React keys ──
 
@@ -547,6 +535,7 @@ function InValuePicker({
                 >
                   <Checkbox
                     checked={selected.has(value.raw)}
+                    aria-label={`Include ${value.label || "empty value"}`}
                     onChange={() => toggle(value)}
                     style={{ marginBottom: 0 }}
                   />
@@ -1843,6 +1832,9 @@ function QcPanel({
 // ── Filter Panel ──
 
 interface FilterPanelProps {
+  tabRequest?: WorkbenchRequest;
+  heightPreferences?: WorkbenchHeights;
+  onHeightPreferenceChange?: (tab: WorkbenchTab, height: number) => void;
   columns: ColumnInfo[];
   activeFilters: FilterGroup;
   activeTable: string | null;
@@ -1886,6 +1878,9 @@ interface FilterPanelProps {
 }
 
 export function FilterPanel({
+  tabRequest,
+  heightPreferences,
+  onHeightPreferenceChange,
   columns,
   activeFilters,
   activeTable,
@@ -1930,9 +1925,18 @@ export function FilterPanel({
   const [draftRoot, setDraftRoot] = useState<DraftFilterGroup>(() =>
     convertToDraft(activeFilters)
   );
-  const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
-  const [activeTab, setActiveTab] = useState<"filters" | "qc" | "colops" | "rowops">("filters");
-  const activeMinPanelHeight = MIN_PANEL_HEIGHT;
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>(filtersOnly ? "filters" : tabRequest?.tab ?? "filters");
+  const [localHeights, setLocalHeights] = useState<WorkbenchHeights>({});
+  const [availableHeight, setAvailableHeight] = useState(() => window.innerHeight - 100);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const manualHeights = heightPreferences ?? localHeights;
+  const panelHeight = getWorkbenchPanelHeight(activeTab, countDraftConditions(draftRoot), availableHeight, manualHeights[activeTab]);
+  const heightLimits = getWorkbenchHeightLimits(availableHeight);
+  const rememberHeight = useCallback((height: number) => {
+    const clamped = getWorkbenchPanelHeight(activeTab, 0, availableHeight, height);
+    if (onHeightPreferenceChange) onHeightPreferenceChange(activeTab, clamped);
+    else setLocalHeights((previous) => ({ ...previous, [activeTab]: clamped }));
+  }, [activeTab, availableHeight, onHeightPreferenceChange]);
   const [splitPercent, setSplitPercent] = useState(68);
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [viewsPaneOpen, setViewsPaneOpen] = useState(savedViews.length > 0);
@@ -1964,12 +1968,28 @@ export function FilterPanel({
   }, [savedViews.length]);
 
   useEffect(() => {
-    if (activeTab !== "qc") return;
-    const syncQcPanelHeight = () => setPanelHeight(getQcPanelHeight());
-    syncQcPanelHeight();
-    window.addEventListener("resize", syncQcPanelHeight);
-    return () => window.removeEventListener("resize", syncQcPanelHeight);
-  }, [activeTab]);
+    if (tabRequest) setActiveTab(filtersOnly ? "filters" : tabRequest.tab);
+  }, [tabRequest, filtersOnly]);
+
+  useEffect(() => {
+    const parent = panelRef.current?.parentElement;
+    if (!parent) return;
+    const toolbarSelector = ".table-toolbar, .pivot-toolbar, .qc-session-bar, .comparison-toolbar, .comparison-subtoolbar";
+    const measure = () => {
+      // Reserve space for controls above the grid as well as the table itself.
+      const overhead = Array.from(parent.children)
+        .filter((child) => child.matches(toolbarSelector))
+        .reduce((height, child) => height + child.getBoundingClientRect().height, 0);
+      setAvailableHeight(Math.max(0, parent.getBoundingClientRect().height - overhead));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    Array.from(parent.children).forEach((child) => {
+      if (child.matches(toolbarSelector)) observer.observe(child);
+    });
+    measure();
+    return () => observer.disconnect();
+  }, [activeTab, qcSession]);
 
   useEffect(() => {
     if (qcFocusRequest <= 0) return;
@@ -1995,11 +2015,7 @@ export function FilterPanel({
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       const deltaY = startY.current - e.clientY;
-      const newHeight = Math.min(
-        MAX_PANEL_HEIGHT,
-        Math.max(activeMinPanelHeight, startHeight.current + deltaY)
-      );
-      setPanelHeight(newHeight);
+      rememberHeight(startHeight.current + deltaY);
     };
 
     const onMouseUp = () => {
@@ -2015,8 +2031,13 @@ export function FilterPanel({
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      if (isDragging.current) {
+        isDragging.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
     };
-  }, [activeMinPanelHeight]);
+  }, [rememberHeight]);
 
   // ── Horizontal split drag handlers ──
   const onSplitMouseDown = useCallback(
@@ -2127,9 +2148,24 @@ export function FilterPanel({
   ].filter(Boolean).join(" ");
 
   return (
-    <div className={filterPanelClassName} style={{ height: panelHeight }}>
+    <div ref={panelRef} className={filterPanelClassName} style={{ height: panelHeight }}>
       {/* Resize handle */}
-      <div className="filter-panel-resize-handle" onMouseDown={onMouseDown}>
+      <div
+        className="filter-panel-resize-handle"
+        role="separator"
+        tabIndex={0}
+        aria-label="Resize workbench. Use Arrow Up or Arrow Down."
+        aria-orientation="horizontal"
+        aria-valuemin={heightLimits.min}
+        aria-valuemax={heightLimits.max}
+        aria-valuenow={panelHeight}
+        onMouseDown={onMouseDown}
+        onKeyDown={(event) => {
+          if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          rememberHeight(event.key === "Home" ? heightLimits.min : event.key === "End" ? heightLimits.max : panelHeight + (event.key === "ArrowUp" ? 20 : -20));
+        }}
+      >
         <div className="filter-panel-resize-grip" />
       </div>
 
@@ -2141,7 +2177,8 @@ export function FilterPanel({
               small
               minimal
               active={activeTab === "filters"}
-              onClick={() => activeTab === "filters" ? onClose() : setActiveTab("filters")}
+              aria-pressed={activeTab === "filters"}
+              onClick={() => setActiveTab("filters")}
               text="Filters"
             />
             {activeCount > 0 && activeTab !== "filters" && (
@@ -2156,8 +2193,9 @@ export function FilterPanel({
                   small
                   minimal
                   active={activeTab === "colops"}
+              aria-pressed={activeTab === "colops"}
                   onClick={() => setActiveTab("colops")}
-                  text="Column Ops"
+                  text="Columns"
                 />
                 {colOpsSteps.length > 0 && activeTab !== "colops" && (
                   <Tag minimal round intent={Intent.SUCCESS} className="filter-panel-tab-badge">
@@ -2169,8 +2207,9 @@ export function FilterPanel({
                   small
                   minimal
                   active={activeTab === "rowops"}
+              aria-pressed={activeTab === "rowops"}
                   onClick={() => setActiveTab("rowops")}
-                  text="Row Ops"
+                  text="Rows"
                 />
                 {rowOpsSteps.length > 0 && activeTab !== "rowops" && (
                   <Tag minimal round intent={Intent.WARNING} className="filter-panel-tab-badge">
@@ -2182,8 +2221,9 @@ export function FilterPanel({
                   small
                   minimal
                   active={activeTab === "qc"}
+              aria-pressed={activeTab === "qc"}
                   onClick={() => setActiveTab("qc")}
-                  text="QC"
+                  text="Review / QC"
                 />
                 {qcSession && activeTab !== "qc" && (
                   <Tag minimal round intent={qcSession.done ? Intent.SUCCESS : Intent.PRIMARY} className="filter-panel-tab-badge">
@@ -2201,8 +2241,8 @@ export function FilterPanel({
             small
             minimal
             onClick={onClose}
-            title="Close filters, column operations, row operations, and QC"
-            aria-label="Close filters, column operations, row operations, and QC"
+            title="Close workbench"
+            aria-label="Close workbench"
           />
         </div>
       </div>
@@ -2239,6 +2279,8 @@ export function FilterPanel({
                   active={showViewsPane}
                   onClick={() => setViewsPaneOpen((open) => !open)}
                   title={showViewsPane ? "Hide saved views" : "Show saved views"}
+                  aria-label={showViewsPane ? "Hide saved views" : "Show saved views"}
+                  aria-expanded={showViewsPane}
                 />
               )}
               {showSaveInput ? (
@@ -2262,12 +2304,14 @@ export function FilterPanel({
                     intent={Intent.SUCCESS}
                     disabled={!saveViewName.trim()}
                     onClick={handleSaveView}
+                    aria-label="Save view"
                   />
                   <Button
                     icon="cross"
                     small
                     minimal
                     onClick={() => { setShowSaveInput(false); setSaveViewName(""); }}
+                    aria-label="Cancel saving view"
                   />
                 </div>
               ) : showSaveViewAction ? (
@@ -2319,7 +2363,22 @@ export function FilterPanel({
         </div>
         {showViewsPane && (
           <>
-            <div className="filter-views-divider" onMouseDown={onSplitMouseDown}>
+            <div
+              className="filter-views-divider"
+              role="separator"
+              tabIndex={0}
+              aria-label="Resize filters and saved views"
+              aria-orientation="vertical"
+              aria-valuemin={48}
+              aria-valuemax={82}
+              aria-valuenow={splitPercent}
+              onMouseDown={onSplitMouseDown}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                setSplitPercent((current) => Math.min(82, Math.max(48, current + (event.key === "ArrowRight" ? 4 : -4))));
+              }}
+            >
               <div className="filter-views-divider-grip" />
             </div>
             <div className="filter-views-right" style={{ width: `${100 - splitPercent}%` }}>

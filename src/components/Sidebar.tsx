@@ -8,11 +8,6 @@ import {
 } from "@blueprintjs/core";
 import { Popover2, PopupKind, Tooltip2 } from "@blueprintjs/popover2";
 import { LoadedTable, ColumnInfo, SortColumn, PivotViewConfig, DocumentWorkspaceFileActions, DatasetOverview, ColumnStatsTopValue } from "../types";
-import { DataOperationsDialog } from "./DataOperationsDialog";
-import { AggregateDialog } from "./AggregateDialog";
-import { PivotDialog } from "./PivotDialog";
-import { LookupMergeDialog } from "./LookupMergeDialog";
-import { DateConversionDialog } from "./DateConversionDialog";
 import { SearchInput } from "./SearchInput";
 import { DatasetOverviewPanel } from "./DatasetOverviewPanel";
 
@@ -20,7 +15,6 @@ interface SidebarProps {
   tables: LoadedTable[];
   activeTable: string | null;
   schema: ColumnInfo[];
-  filtersApplied: boolean;
   visibleColumns: string[];
   columnOrder: string[];
   sortColumns: SortColumn[];
@@ -30,24 +24,14 @@ interface SidebarProps {
   onReorderColumns: (newOrder: string[]) => void;
   onSort: (column: string, addLevel: boolean) => void;
   onClearSort: () => void;
-  onResetView: () => void;
   pivotConfig: PivotViewConfig | null;
   onPivotGroup: (column: string, addLevel: boolean) => void;
   onClearPivotGroups: () => void;
-  onDataOperation: (sql: string, description?: string, columnRenames?: Record<string, string>) => Promise<void>;
-  onSampleTable: (n: number, isPercent: boolean) => Promise<void>;
   onDeleteTable: (tableName: string) => void;
   onCombine: (selectedNames: string[]) => void;
-  onCreateAggregateTable: (sql: string) => void;
-  onCreatePivotTable: (sql: string) => void;
-  onLookupMerge: (sql: string, options: { replaceActive: boolean }) => void;
-  onCompareTables?: () => void;
-  onExport: () => void;
-  onOpenHistory: () => void;
   onOpenFiles: () => void;
   onOpenHelp: () => void;
   onHide: () => void;
-  onOpenOverview: () => void;
   onGetDatasetOverview: () => Promise<DatasetOverview>;
   onGetOverviewTopValues: (column: string) => Promise<ColumnStatsTopValue[]>;
   jsonWorkspaceActive?: boolean;
@@ -127,8 +111,9 @@ function getFileMetricLabel(table: LoadedTable): string {
 }
 
 function getFileListLabel(table: LoadedTable): string {
-  if ((isMarkdownTable(table) || isPdfTable(table)) && !table.filePath.startsWith("(")) {
-    return table.filePath.split(/[/\\]/).pop() || table.tableName;
+  if (!table.filePath.startsWith("(")) {
+    const name = table.filePath.split(/[/\\]/).pop() || table.tableName;
+    return table.importOptions?.excelSheet ? `${name} · ${table.importOptions.excelSheet}` : name;
   }
   return table.tableName;
 }
@@ -198,7 +183,6 @@ export function Sidebar({
   tables,
   activeTable,
   schema,
-  filtersApplied,
   visibleColumns,
   columnOrder,
   sortColumns,
@@ -208,24 +192,14 @@ export function Sidebar({
   onReorderColumns,
   onSort,
   onClearSort,
-  onResetView,
   pivotConfig,
   onPivotGroup,
   onClearPivotGroups,
-  onDataOperation,
-  onSampleTable,
   onDeleteTable,
   onCombine,
-  onCreateAggregateTable,
-  onCreatePivotTable,
-  onLookupMerge,
-  onCompareTables,
-  onExport,
-  onOpenHistory,
   onOpenFiles,
   onOpenHelp,
   onHide,
-  onOpenOverview,
   onGetDatasetOverview,
   onGetOverviewTopValues,
   jsonWorkspaceActive = false,
@@ -234,11 +208,6 @@ export function Sidebar({
   documentFileActions = null,
   onPdfNavigationHostChange,
 }: SidebarProps): React.ReactElement {
-  const [dataOpDialogOpen, setDataOpDialogOpen] = useState(false);
-  const [aggregateDialogOpen, setAggregateDialogOpen] = useState(false);
-  const [pivotDialogOpen, setPivotDialogOpen] = useState(false);
-  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
-  const [dateConvDialogOpen, setDateConvDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
   const [columnSearch, setColumnSearch] = useState("");
@@ -260,7 +229,6 @@ export function Sidebar({
   const documentWorkspaceActive = jsonWorkspaceActive || markdownWorkspaceActive || pdfWorkspaceActive;
   const workspaceLabel = pdfWorkspaceActive ? "PDF" : markdownWorkspaceActive ? "Markdown" : "JSON";
   const combinableTables = useMemo(() => tables.filter((table) => !isDocumentWorkspaceTable(table)), [tables]);
-  const comparableTables = useMemo(() => tables.filter((table) => table.schema.length > 0), [tables]);
   const activeLoadedTable = useMemo(
     () => tables.find((table) => table.tableName === activeTable) ?? null,
     [activeTable, tables]
@@ -291,7 +259,7 @@ export function Sidebar({
   const filteredTables = useMemo(() => {
     if (!tableSearch.trim()) return tables;
     const q = tableSearch.toLowerCase();
-    return tables.filter((t) => t.tableName.toLowerCase().includes(q));
+    return tables.filter((t) => getFileListLabel(t).toLowerCase().includes(q) || t.tableName.toLowerCase().includes(q));
   }, [tables, tableSearch]);
 
   const toggleCombineSelection = (tableName: string) => {
@@ -409,12 +377,12 @@ export function Sidebar({
   // Column reorder uses pointer events (not HTML5 drag-and-drop): under Tauri
   // the OS-level drag-drop handler swallows the webview's native drop events,
   // so HTML5 DnD never lands. Mirrors DataGrid's header reorder.
-  const handleColumnPointerDown = (e: React.PointerEvent, column: string) => {
+  const handleColumnPointerDown = (e: React.PointerEvent, column: string, fromHandle = false) => {
     if (
       e.button !== 0 ||
-      (e.target as HTMLElement).closest(
+      (!fromHandle && (e.target as HTMLElement).closest(
         ".column-visibility-checkbox, .column-pivot-indicator, .column-sort-indicator, input, button"
-      )
+      ))
     ) {
       return;
     }
@@ -550,7 +518,6 @@ export function Sidebar({
   const allVisible = visibleColumns.length === allColumnNames.length;
   const noneVisible = visibleColumns.length === 0;
   const visibleColumnCount = visibleColumns.length;
-  const compareDisabled = comparableTables.length < 2;
   const activeWorkspaceKind = pdfWorkspaceActive ? "pdf" : markdownWorkspaceActive ? "markdown" : jsonWorkspaceActive ? "json" : null;
   const activeDocumentFileActions = documentFileActions?.workspaceKind === activeWorkspaceKind
     ? documentFileActions
@@ -609,6 +576,7 @@ export function Sidebar({
             <span className="sidebar-count">{tables.length}</span>
           </div>
           <div className="table-header-actions">
+            <Button icon="folder-open" text="Open files" minimal small onClick={onOpenFiles} />
             <Button
               icon="help"
               minimal
@@ -623,6 +591,7 @@ export function Sidebar({
               small
               onClick={onHide}
               title="Hide sidebar"
+              aria-label="Hide sidebar"
               className="sidebar-hide-btn"
             />
           </div>
@@ -665,6 +634,7 @@ export function Sidebar({
               checked={selectedForCombine.has(t.tableName)}
               onChange={() => toggleCombineSelection(t.tableName)}
               className="table-combine-checkbox"
+              aria-label={`Select ${fileLabel} for combine`}
               disabled={!!rowCombineSelectionDisabledReason}
             />
           );
@@ -704,7 +674,10 @@ export function Sidebar({
                       </Tooltip2>
                     ) : combineCheckbox
                   )}
-                  <span
+                  <button
+                    type="button"
+                    aria-pressed={t.tableName === activeTable}
+                    aria-label={`Open ${fileLabel}`}
                     className="table-main"
                     onClick={() => onSelectTable(t.tableName)}
                     title={t.filePath.startsWith("(") ? fileLabel : undefined}
@@ -718,8 +691,10 @@ export function Sidebar({
                         {getFileMetricLabel(t)}
                       </span>
                     </span>
-                  </span>
+                  </button>
                   <Button
+                    aria-label={`Remove ${fileLabel} from session`}
+                    title={`Remove ${fileLabel} from session`}
                     icon="cross"
                     minimal
                     small
@@ -811,11 +786,23 @@ export function Sidebar({
       )}
 
       {!documentWorkspaceActive && activeTable && schema.length > 0 && (
-        <div className="sidebar-view-switch" role="tablist" aria-label="Sidebar view">
+        <div
+          className="sidebar-view-switch"
+          role="tablist"
+          aria-label="Sidebar view"
+          onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === "Home" ? "columns" : event.key === "End" ? "overview" : sidebarView === "columns" ? "overview" : "columns";
+            setSidebarView(next);
+            event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next === "columns" ? 0 : 1]?.focus();
+          }}
+        >
           <button
             type="button"
             role="tab"
             aria-selected={sidebarView === "columns"}
+            tabIndex={sidebarView === "columns" ? 0 : -1}
             className={sidebarView === "columns" ? "active" : ""}
             onClick={() => setSidebarView("columns")}
           >
@@ -826,11 +813,12 @@ export function Sidebar({
             type="button"
             role="tab"
             aria-selected={sidebarView === "overview"}
+            tabIndex={sidebarView === "overview" ? 0 : -1}
             className={sidebarView === "overview" ? "active" : ""}
             onClick={() => setSidebarView("overview")}
           >
             <Icon icon="grouped-bar-chart" size={12} />
-            <span>Overview</span>
+            <span>Summary</span>
           </button>
         </div>
       )}
@@ -1047,13 +1035,30 @@ export function Sidebar({
                 data-sidebar-column-index={index}
                 onPointerDown={(e) => handleColumnPointerDown(e, col.column_name)}
               >
-                <span className="drag-handle">
+                <button
+                  type="button"
+                  className="drag-handle"
+                  aria-label={`Reorder ${col.column_name}. Use Arrow Up or Arrow Down to move the column.`}
+                  title="Drag to reorder, or focus and use Arrow Up / Arrow Down"
+                  onPointerDown={(e) => handleColumnPointerDown(e, col.column_name, true)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                    e.preventDefault();
+                    const names = orderedColumns.map((column) => column.column_name);
+                    const from = names.indexOf(col.column_name);
+                    const to = from + (e.key === "ArrowUp" ? -1 : 1);
+                    if (from < 0 || to < 0 || to >= names.length) return;
+                    [names[from], names[to]] = [names[to], names[from]];
+                    onReorderColumns(names);
+                  }}
+                >
                   <Icon icon="drag-handle-vertical" size={10} />
-                </span>
+                </button>
                 <Checkbox
                   checked={isVisible}
                   onChange={() => onToggleColumn(col.column_name)}
                   className="column-visibility-checkbox"
+                  aria-label={`Show ${col.column_name}`}
                 />
                 <span className="column-meta">
                   <span className="column-name-text">{col.column_name}</span>
@@ -1061,7 +1066,10 @@ export function Sidebar({
                 </span>
                 <span className="column-tools">
                   {/* Group control (left, green) */}
-                  <span
+                  <button
+                    type="button"
+                    aria-pressed={!!pivotInfo}
+                    aria-label={`Group by ${col.column_name}${pivotInfo ? `, ${pivotInfo.direction === "ASC" ? "ascending" : "descending"}, level ${pivotInfo.index}` : ""}. Hold Shift to add a level.`}
                     className={`column-pivot-indicator${pivotInfo ? " active" : ""}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1088,9 +1096,12 @@ export function Sidebar({
                     ) : (
                       <Icon icon="layers" size={10} className="column-pivot-idle" />
                     )}
-                  </span>
+                  </button>
                   {/* Sort control (right, blue) */}
-                  <span
+                  <button
+                    type="button"
+                    aria-pressed={!!sortInfo}
+                    aria-label={`Sort by ${col.column_name}${sortInfo ? `, ${sortInfo.direction === "ASC" ? "ascending" : "descending"}, level ${sortInfo.index}` : ""}. Hold Shift to add a level.`}
                     className={`column-sort-indicator${sortInfo ? " active" : ""}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1110,7 +1121,7 @@ export function Sidebar({
                     ) : (
                       <Icon icon="double-caret-vertical" size={10} className="column-sort-idle" />
                     )}
-                  </span>
+                  </button>
                 </span>
               </div>
             );
@@ -1128,101 +1139,6 @@ export function Sidebar({
           onGetOverview={onGetDatasetOverview}
           onGetTopValues={onGetOverviewTopValues}
         />
-      )}
-
-      {/* Data operation + filter buttons */}
-      {!documentWorkspaceActive && activeTable && schema.length > 0 && (
-        <div className="sidebar-section sidebar-actions">
-          <Button
-            icon="reset"
-            text="Reset view"
-            title="Show all columns in their original order and clear filters, sorting, and grouping"
-            onClick={onResetView}
-            small
-          />
-          <Button
-            icon="folder-open"
-            text="Open"
-            title="Open file"
-            onClick={onOpenFiles}
-            small
-          />
-          <Button
-            icon="grouped-bar-chart"
-            text="Aggregate"
-            onClick={() => setAggregateDialogOpen(true)}
-            small
-          />
-          <Button
-            icon="pivot-table"
-            text="Pivot"
-            title="Pivot Table"
-            onClick={() => setPivotDialogOpen(true)}
-            small
-          />
-          {comparableTables.length >= 2 && (
-            <Button
-              icon="data-lineage"
-              text="Lookup"
-              title="Lookup Merge"
-              onClick={() => setMergeDialogOpen(true)}
-              small
-            />
-          )}
-          {onCompareTables && (
-            <Tooltip2
-              content="Open another table to enable comparison."
-              disabled={!compareDisabled}
-              placement="top"
-              minimal
-            >
-              <span className="sidebar-action-tooltip">
-                <Button
-                  icon="comparison"
-                  text="Compare"
-                  title={compareDisabled ? undefined : "Compare current table with another table"}
-                  onClick={onCompareTables}
-                  small
-                  fill
-                  disabled={compareDisabled}
-                />
-              </span>
-            </Tooltip2>
-          )}
-          <Button
-            icon="column-layout"
-            text="Data Ops"
-            title="Data Operations"
-            onClick={() => setDataOpDialogOpen(true)}
-            small
-          />
-          <Button
-            icon="calendar"
-            text="Dates"
-            title="Date Conversion"
-            onClick={() => setDateConvDialogOpen(true)}
-            small
-          />
-          <Button
-            icon="history"
-            text="History"
-            onClick={onOpenHistory}
-            small
-          />
-          <Button
-            icon="dashboard"
-            text="Overview"
-            title="Open Data Overview"
-            onClick={onOpenOverview}
-            small
-          />
-          <Button
-            icon="export"
-            text="Export"
-            onClick={onExport}
-            small
-          />
-        </div>
       )}
 
       {fileContextMenu && (
@@ -1259,58 +1175,9 @@ export function Sidebar({
         intent={Intent.DANGER}
         icon="trash"
       >
-        <p>Remove file <strong>{deleteTarget}</strong>? This will drop it from the current session.</p>
+        <p>Remove file <strong>{tables.find((table) => table.tableName === deleteTarget) ? getFileListLabel(tables.find((table) => table.tableName === deleteTarget)!) : deleteTarget}</strong>? This will drop it from the current session.</p>
       </Alert>
 
-      <DataOperationsDialog
-        isOpen={dataOpDialogOpen}
-        onClose={() => setDataOpDialogOpen(false)}
-        activeTable={activeTable}
-        schema={schema}
-        fileName={(() => {
-          const file = tables.find((table) => table.tableName === activeTable);
-          return file && !file.filePath.startsWith("(") ? file.filePath.split(/[/\\]/).pop() || file.tableName : activeTable || "No file selected";
-        })()}
-        totalRows={tables.find((table) => table.tableName === activeTable)?.rowCount ?? 0}
-        filtersApplied={filtersApplied}
-        onApply={onDataOperation}
-        onSampleTable={onSampleTable}
-      />
-
-      <AggregateDialog
-        isOpen={aggregateDialogOpen}
-        onClose={() => setAggregateDialogOpen(false)}
-        activeTable={activeTable}
-        schema={schema}
-        onCreateTable={onCreateAggregateTable}
-      />
-
-      <PivotDialog
-        isOpen={pivotDialogOpen}
-        onClose={() => setPivotDialogOpen(false)}
-        activeTable={activeTable}
-        schema={schema}
-        onCreateTable={onCreatePivotTable}
-      />
-
-      <LookupMergeDialog
-        isOpen={mergeDialogOpen}
-        onClose={() => setMergeDialogOpen(false)}
-        activeTable={activeTable}
-        schema={schema}
-        tables={comparableTables}
-        onExecute={onLookupMerge}
-      />
-
-      <DateConversionDialog
-        isOpen={dateConvDialogOpen}
-        onClose={() => setDateConvDialogOpen(false)}
-        activeTable={activeTable}
-        schema={schema}
-        tables={comparableTables}
-        filtersApplied={filtersApplied}
-        onApply={onDataOperation}
-      />
     </div>
   );
 }

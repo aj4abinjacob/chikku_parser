@@ -3,6 +3,8 @@ import { Button, Classes, Dialog, Icon, Intent, Tag } from "@blueprintjs/core";
 import { getCurrentWindow, type DragDropEvent } from "@tauri-apps/api/window";
 import { LoadedTable, ViewState, ColumnInfo, FilterGroup, FilterNode, SheetInfo, hasActiveFilters, countConditions, isFilterGroup, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, PivotAggFunction, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions, ColumnStats, ColumnStatsUniqueValue, ComparisonViewConfig, DocumentWorkspaceFileActions, QcCreateConfig, QcOptionSortMode, QcSession, QcValueType, DatasetOverview, ColumnStatsTopValue } from "../types";
 import { Sidebar } from "./Sidebar";
+import { Toolbar } from "./Toolbar";
+import { WorkbenchTab, WorkbenchRequest, WorkbenchHeights } from "../utils/workbenchPanel";
 import { DataGrid } from "./DataGrid";
 import { ComparisonView, createDefaultComparisonConfig } from "./ComparisonView";
 import { FilterPanel } from "./FilterPanel";
@@ -431,6 +433,15 @@ export function App(): React.ReactElement {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [pdfNavigationHost, setPdfNavigationHost] = useState<HTMLDivElement | null>(null);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [workbenchRequest, setWorkbenchRequest] = useState<WorkbenchRequest>({ tab: "filters", key: 0 });
+  const [workbenchHeights, setWorkbenchHeights] = useState<WorkbenchHeights>({});
+  const openWorkbench = useCallback((tab: WorkbenchTab) => {
+    setWorkbenchRequest((previous) => ({ tab, key: previous.key + 1 }));
+    setFilterPanelOpen(true);
+  }, []);
+  const rememberWorkbenchHeight = useCallback((tab: WorkbenchTab, height: number) => {
+    setWorkbenchHeights((previous) => ({ ...previous, [tab]: height }));
+  }, []);
   const [qcPanelRequestKey, setQcPanelRequestKey] = useState(0);
   const [combineDialogOpen, setCombineDialogOpen] = useState(false);
   const [combineTableNames, setCombineTableNames] = useState<string[]>([]);
@@ -3031,12 +3042,11 @@ export function App(): React.ReactElement {
       )}
       <div className="main-layout">
         <div className={`sidebar-shell${sidebarVisible ? " sidebar-shell-open" : " sidebar-shell-collapsed"}${documentWorkspaceActive ? " sidebar-shell-document" : ""}${jsonWorkspaceActive ? " sidebar-shell-json" : ""}${pdfWorkspaceActive ? " sidebar-shell-pdf" : ""}`}>
-          <div className="sidebar-shell-panel" aria-hidden={!sidebarVisible}>
+          <div className="sidebar-shell-panel" aria-hidden={!sidebarVisible} {...(!sidebarVisible ? { inert: "" } : {})}>
             <Sidebar
               tables={tables}
               activeTable={activeTable}
               schema={schema}
-              filtersApplied={hasActiveFilters(viewState.filters)}
               visibleColumns={viewState.visibleColumns}
               columnOrder={viewState.columnOrder}
               sortColumns={viewState.sortColumns}
@@ -3046,27 +3056,17 @@ export function App(): React.ReactElement {
               onPivotGroup={handlePivotGroup}
               onClearPivotGroups={handleClearPivotGroups}
               onSelectTable={activateTable}
-              onResetView={handleResetView}
               onToggleColumn={toggleColumn}
               onSetVisibleColumns={(cols: string[]) => {
                 setViewState((prev) => ({ ...prev, visibleColumns: cols }));
                 setResetKey((k) => k + 1);
               }}
               onReorderColumns={reorderColumns}
-              onDataOperation={handleDataOperation}
-              onSampleTable={handleSampleTable}
               onDeleteTable={handleDeleteTable}
               onCombine={handleCombineOpen}
-              onCreateAggregateTable={handleCreateAggregateTable}
-              onCreatePivotTable={handleCreatePivotTable}
-              onLookupMerge={handleLookupMerge}
-              onCompareTables={handleStartComparison}
-              onExport={() => setExportDialogOpen(true)}
-              onOpenHistory={() => setHistoryDialogOpen(true)}
               onOpenFiles={handleChooseFiles}
               onOpenHelp={() => setHelpCenterOpen(true)}
               onHide={() => setSidebarVisible(false)}
-              onOpenOverview={handleOpenDatasetOverview}
               onGetDatasetOverview={handleGetDatasetOverview}
               onGetOverviewTopValues={handleGetOverviewTopValues}
               jsonWorkspaceActive={jsonWorkspaceActive}
@@ -3076,7 +3076,7 @@ export function App(): React.ReactElement {
               onPdfNavigationHostChange={setPdfNavigationHost}
             />
           </div>
-          <div className="sidebar-shell-strip" aria-hidden={sidebarVisible}>
+          <div className="sidebar-shell-strip" aria-hidden={sidebarVisible} {...(sidebarVisible ? { inert: "" } : {})}>
             <div className="sidebar-collapsed">
               <Button
                 icon="chevron-right"
@@ -3084,6 +3084,7 @@ export function App(): React.ReactElement {
                 small
                 onClick={() => setSidebarVisible(true)}
                 title="Show sidebar"
+                aria-label="Show sidebar"
               />
               <Button
                 icon="help"
@@ -3144,6 +3145,8 @@ export function App(): React.ReactElement {
                   dataVersion={dataVersion}
                   filterPanelOpen={filterPanelOpen}
                   filterPanelMounted={filterPanelMounted}
+                  heightPreferences={workbenchHeights}
+                  onHeightPreferenceChange={rememberWorkbenchHeight}
                   onConfigChange={setComparisonConfig}
                   onFilterPanelOpenChange={setFilterPanelOpen}
                   onExit={() => {
@@ -3154,6 +3157,26 @@ export function App(): React.ReactElement {
                 />
               ) : (
                 <>
+                  {activeTable && schema.length > 0 && (
+                    <Toolbar
+                      tables={tables}
+                      activeTable={activeTable}
+                      schema={schema}
+                      filtersApplied={hasActiveFilters(viewState.filters)}
+                      filterPanelOpen={filterPanelOpen}
+                      onOpenWorkbench={openWorkbench}
+                      onResetView={handleResetView}
+                      onDataOperation={handleDataOperation}
+                      onSampleTable={handleSampleTable}
+                      onCreateAggregateTable={handleCreateAggregateTable}
+                      onCreatePivotTable={handleCreatePivotTable}
+                      onLookupMerge={handleLookupMerge}
+                      onCompareTables={handleStartComparison}
+                      onExport={() => setExportDialogOpen(true)}
+                      onOpenHistory={() => setHistoryDialogOpen(true)}
+                      onOpenOverview={handleOpenDatasetOverview}
+                    />
+                  )}
                   {pivotActive && viewState.pivotConfig && (
                     <PivotToolbar
                       pivotConfig={viewState.pivotConfig}
@@ -3224,6 +3247,9 @@ export function App(): React.ReactElement {
                   />
                   {filterPanelMounted && (
                     <FilterPanel
+                      tabRequest={workbenchRequest}
+                      heightPreferences={workbenchHeights}
+                      onHeightPreferenceChange={rememberWorkbenchHeight}
                       columns={schema}
                       activeFilters={viewState.filters}
                       activeTable={activeTable}
@@ -3341,7 +3367,7 @@ export function App(): React.ReactElement {
           pivotConfig={comparisonActive ? null : viewState.pivotConfig}
           groupCount={pivotActive ? pivotGroupCount : 0}
           filterPanelOpen={filterPanelOpen}
-          onToggleFilterPanel={() => setFilterPanelOpen((v) => !v)}
+          onToggleFilterPanel={() => comparisonActive ? setFilterPanelOpen((v) => !v) : openWorkbench("filters")}
           activeFilterCount={
             comparisonActive && comparisonConfig
               ? countConditions(comparisonConfig.filters)

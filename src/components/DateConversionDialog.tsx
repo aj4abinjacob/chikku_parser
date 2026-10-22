@@ -445,7 +445,7 @@ export function DateConversionDialog({
       onClose={handleClose}
       canEscapeKeyClose={!running}
       isCloseButtonShown={!running}
-      title="Date Conversion"
+      title="Convert dates"
       icon="calendar"
       style={{ width: 820, maxWidth: "92vw" }}
       canOutsideClickClose={false}

@@ -32,7 +32,7 @@ const HELP_TOPICS: HelpTopic[] = [
         items: [
           "Open one or more files with Open, drag files onto the window, or use Cmd/Ctrl+O.",
           "Choose a file in the left sidebar. Excel workbooks ask which sheets you want to import.",
-          "Inspect, filter, clean, reshape, or compare the data using the grid and sidebar actions.",
+          "Inspect, filter, clean, reshape, or compare the data using the grid and toolbar above the table.",
           "Use Export when the result is ready. Tabular changes live in this app session and do not overwrite the source file.",
         ],
       },
@@ -42,7 +42,7 @@ const HELP_TOPICS: HelpTopic[] = [
       },
       {
         title: "A useful mental model",
-        body: "Files are the inputs, the center area is the active workspace, the left sidebar controls the active file, and the status bar opens filters and cleaning tools. Generated results such as pivots, aggregates, samples, merges, and combines appear as new files in the sidebar.",
+        body: "Files are the inputs, the center area is the active workspace, the left sidebar navigates files and columns, and the toolbar above the table groups Filter, Transform, Analyze, Review / QC, History, Reset view, and Export. The sidebar Summary tab gives a quick overview; Analyze → Open data profile opens the detailed profile. Generated results such as pivots, aggregates, samples, merges, and combines appear as new files in the sidebar.",
       },
     ],
   },
@@ -124,7 +124,7 @@ const HELP_TOPICS: HelpTopic[] = [
     sections: [
       {
         title: "Open the workbench",
-        body: "Select Filters in the bottom status bar. Add conditions or nested groups, choose AND/OR logic, then select Apply. The row count shows how many records remain.",
+        body: "Select Filter above the table, or Filters in the bottom status bar. Add conditions or nested groups, choose AND/OR logic, then select Apply. The row count shows how many records remain. The workbench opens compactly and grows with more conditions. Drag its top edge to resize, or focus that edge and use Arrow Up / Arrow Down; each tab remembers its size for the session.",
       },
       {
         title: "Filter choices",
@@ -145,20 +145,20 @@ const HELP_TOPICS: HelpTopic[] = [
     keywords: ["clean", "column ops", "row ops", "regex", "replace", "trim", "duplicate", "null", "undo"],
     sections: [
       {
-        title: "Column Ops",
-        body: "Open the bottom workbench and choose Column Ops. Available operations include find/replace, regex extraction, trim, upper/lower case, set value, prefix/suffix, extract numbers, clear to NULL, rename, and delete. Most operations include a live preview and can replace the source column or write to another column.",
+        title: "Transform columns",
+        body: "Choose Transform → Columns above the table. Available operations include find/replace, regex extraction, trim, upper/lower case, set value, prefix/suffix, extract numbers, clear to NULL, rename, and delete. Most operations include a live preview and can replace the source column or write to another column.",
       },
       {
-        title: "Row Ops",
-        body: "Delete filtered rows, keep only filtered rows, remove empty rows, or remove duplicates. Active filters define the scope for filter-based row operations.",
+        title: "Transform rows",
+        body: "Choose Transform → Rows to delete filtered rows, keep only filtered rows, remove empty rows, or remove duplicates. Active filters define the scope for filter-based row operations.",
       },
       {
-        title: "Data Ops and Dates",
-        body: "Use Data Ops in the sidebar for substring and SQL expressions, create/combine/rename/delete columns, conditional columns, sampling, deduplication, empty-row removal, and NULL cleanup. Dates detects common date formats and converts or reformats date columns.",
+        title: "Table transformations and dates",
+        body: "Choose Transform → Table transformations above the table for substring and SQL expressions, create/combine/rename/delete columns, conditional columns, sampling, deduplication, empty-row removal, and NULL cleanup. Transform → Convert dates detects common date formats and converts or reformats date columns.",
       },
       {
         title: "Undo and patterns",
-        body: "Column Ops and Row Ops keep an undo history for the session. Regex actions include a pattern picker and a manager for adding, importing, or exporting reusable patterns.",
+        body: "Column and row transformations keep an undo history for the session. Regex actions include a pattern picker and a manager for adding, importing, or exporting reusable patterns.",
       },
     ],
   },
@@ -176,11 +176,11 @@ const HELP_TOPICS: HelpTopic[] = [
       },
       {
         title: "Lookup",
-        body: "Use Lookup for LEFT or INNER joins. Match on one or more key pairs, review duplicate or NULL key warnings, and resolve column-name conflicts before creating a merged table or replacing the active one.",
+        body: "Choose Analyze → Lookup and merge for LEFT or INNER joins. Match on one or more key pairs, review duplicate or NULL key warnings, and resolve column-name conflicts before creating a merged table or replacing the active one.",
       },
       {
         title: "Compare",
-        body: "Open at least two tables and choose Compare. Select match keys and columns to compare, then filter by same, different, missing, or present results. The inspector explains the selected row and value differences.",
+        body: "Open at least two tables and choose Analyze → Compare files. Select match keys and columns to compare, then filter by same, different, missing, or present results. The inspector explains the selected row and value differences.",
       },
     ],
   },
@@ -194,11 +194,11 @@ const HELP_TOPICS: HelpTopic[] = [
     sections: [
       {
         title: "Aggregate",
-        body: "Choose Aggregate to calculate grouped summaries such as count, sum, average, minimum, and maximum. The result is materialized as a new aggregate table so the source remains available.",
+        body: "Choose Analyze → Aggregate to calculate grouped summaries such as count, sum, average, minimum, and maximum. The result is materialized as a new aggregate table so the source remains available.",
       },
       {
         title: "Pivot table",
-        body: "Choose Pivot to turn distinct category values into columns and aggregate their records. The result appears as a new pivot table.",
+        body: "Choose Analyze → Pivot table to turn distinct category values into columns and aggregate their records. The result appears as a new pivot table.",
       },
       {
         title: "Group View (interactive grouping)",
@@ -216,7 +216,7 @@ const HELP_TOPICS: HelpTopic[] = [
     sections: [
       {
         title: "QC workflow",
-        body: "Open the bottom workbench and choose QC. Create a boolean or option-based review column, optionally add a notes column for free-text comments typed inline in the grid, assign a result directly in the grid, use quick filters to focus on unreviewed rows or a result, then mark the session done. A completed session can be resumed or left in place while you start a new QC column. Reset all clears both the result and the notes.",
+        body: "Choose Review / QC above the table. Create a boolean or option-based review column, optionally add a notes column for free-text comments typed inline in the grid, assign a result directly in the grid, use quick filters to focus on unreviewed rows or a result, then mark the session done. A completed session can be resumed or left in place while you start a new QC column. Reset all clears both the result and the notes.",
       },
       {
         title: "Operation History",

@@ -2884,6 +2884,7 @@ html, body, #root {
 
     .table-header-actions {
       display: flex;
+      flex-shrink: 0;
       align-items: center;
       gap: 1px;
 
@@ -3520,46 +3521,6 @@ html, body, #root {
 
     &:hover .column-sort-indicator {
       opacity: 1;
-    }
-  }
-
-  .sidebar-actions {
-    flex-shrink: 0;
-    border-bottom: none;
-    border-top: 1px solid #e1e8ed;
-    background: #fff;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-
-    .sidebar-action-tooltip {
-      min-width: 0;
-      display: block;
-    }
-
-    > .bp4-button,
-    .sidebar-action-tooltip .bp4-button {
-      min-width: 0;
-      min-height: 26px;
-      justify-content: flex-start;
-      padding: 0 6px;
-      border-radius: 6px;
-      box-shadow: none;
-      border: 1px solid #d8e1e8;
-      background: #f7f9fb;
-      font-size: 11px;
-
-      &:hover {
-        border-color: #bfccd6;
-        background: #fff;
-      }
-
-      .bp4-button-text {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
     }
   }
 
@@ -16486,23 +16447,6 @@ html.dark-theme #root {
       }
     }
 
-    .sidebar-actions {
-      border-top-color: @dark-border-2;
-      background: @dark-bg-2;
-    }
-
-    .sidebar-actions > .bp4-button,
-    .sidebar-actions .sidebar-action-tooltip .bp4-button {
-      background: @dark-bg-3;
-      border-color: @dark-border-2;
-      color: @dark-text-1;
-
-      &:hover {
-        background: @dark-bg-4;
-        border-color: @dark-border-1;
-      }
-    }
-
     .sidebar-view-switch {
       border-bottom-color: @dark-border-1;
       background: @dark-bg-2;
@@ -19779,5 +19723,115 @@ html.dark-theme #root {
 
   .file-changed-banner-warning {
     color: @dark-warning;
+  }
+}
+
+// Table tools stay above the workspace; labels remain readable when the window narrows.
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 7px 10px;
+  flex-shrink: 0;
+  background: #f7f9fb;
+  border-bottom: 1px solid #d8e1e8;
+
+  .bp4-button {
+    white-space: nowrap;
+    font-size: 12px;
+  }
+}
+
+.table-toolbar-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.table-toolbar-secondary {
+  margin-left: auto;
+}
+
+.sidebar .table-list-item .table-main {
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.sidebar .table-list-item:focus-within .table-delete-btn {
+  opacity: 0.8;
+}
+
+.sidebar .column-item .drag-handle,
+.sidebar .column-item .column-sort-indicator,
+.sidebar .column-item .column-pivot-indicator {
+  border: 0;
+  font: inherit;
+}
+
+.sidebar .column-item .drag-handle,
+.sidebar .column-item .column-sort-indicator:not(.active),
+.sidebar .column-item .column-pivot-indicator:not(.active) {
+  background: transparent;
+}
+
+.sidebar .column-item .drag-handle {
+  padding: 3px 0;
+  min-height: 22px;
+}
+
+.filter-toggle {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+// Keep the draft state and Apply together instead of opposite sides of a wide table.
+.filter-toolbar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.filter-toolbar-actions {
+  justify-content: flex-start;
+}
+
+.table-toolbar button:focus-visible,
+.sidebar button:focus-visible,
+.sidebar input:focus-visible + .bp4-control-indicator,
+.filter-toggle:focus-visible,
+.filter-panel-resize-handle:focus-visible,
+.filter-views-divider:focus-visible {
+  outline: 2px solid #137cbd;
+  outline-offset: 2px;
+}
+
+.filter-panel-resize-handle:focus-visible,
+.filter-views-divider:focus-visible {
+  outline-offset: -2px;
+}
+
+.bp4-dark {
+  .table-toolbar {
+    background: @dark-bg-2;
+    border-bottom-color: @dark-border-1;
+  }
+
+  .table-toolbar button:focus-visible,
+  .sidebar button:focus-visible,
+  .sidebar input:focus-visible + .bp4-control-indicator,
+  .filter-toggle:focus-visible,
+  .filter-panel-resize-handle:focus-visible,
+  .filter-views-divider:focus-visible {
+    outline-color: @dark-accent;
   }
 }

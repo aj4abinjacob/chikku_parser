@@ -55,7 +55,9 @@ export function StatusBar({
         {updateNotice && <div className="status-bar-update">{updateNotice}</div>}
       </div>
       {activeTable && filterEnabled && (
-        <div
+        <button
+          type="button"
+          aria-expanded={filterPanelOpen}
           className={`filter-toggle${filterPanelOpen ? " active" : ""}`}
           style={{ left: sidebarVisible ? "var(--app-sidebar-width)" : "36px" }}
           onClick={onToggleFilterPanel}
@@ -64,7 +66,7 @@ export function StatusBar({
           {activeFilterCount > 0 && !filterPanelOpen && (
             <span className="filter-toggle-badge">{activeFilterCount}</span>
           )}
-        </div>
+        </button>
       )}
     </div>
   );

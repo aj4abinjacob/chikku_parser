@@ -689,7 +689,7 @@ export function DataOperationsDialog({
     <Dialog
       isOpen={isOpen}
       onClose={handleClose}
-      title="Data Operations"
+      title="Table transformations"
       canEscapeKeyClose={!applying}
       canOutsideClickClose={!applying}
       isCloseButtonShown={!applying}

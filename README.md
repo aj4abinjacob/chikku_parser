@@ -15,6 +15,14 @@ A Tauri desktop app for viewing documents and exploring, combining, and transfor
 - **Live Link Previews** — Hover public HTTPS URLs for safe metadata cards, or disable them from View → Live Link Previews
 - **In-App Help** — Searchable guidance for tabular, JSON, Markdown, PDF, multi-file, review, and export workflows
 
+## Finding your tools
+
+Open files from the **Files** heading in the left sidebar. The sidebar keeps file and column navigation together; **Summary** shows a quick overview of the selected table.
+
+Use the toolbar above a table to **Filter**, **Transform → Columns / Rows / Table transformations / Convert dates**, or **Analyze → Aggregate / Pivot table / Lookup and merge / Compare files / Open data profile**. **Review / QC**, **History**, **Reset view**, and **Export** are also available there. Document and comparison workspaces keep their own tools.
+
+Filters open in a compact workbench that grows as conditions are added. Select **Apply** beside the draft status to update the table. Drag the top edge to resize, or focus it and use **Arrow Up / Arrow Down**; **Home / End** select the smallest or largest available size. Each workbench tab remembers its manual height during the session. To reorder columns by keyboard, focus a column's drag handle and use **Arrow Up / Arrow Down**. Sort and group controls support **Shift** to add levels.
+
 ## Tech Stack
 
 | Layer | Technology |

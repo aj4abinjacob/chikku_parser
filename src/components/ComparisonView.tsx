@@ -26,6 +26,7 @@ import {
 import { buildFilterGroupClause, escapeIdent } from "../utils/sqlBuilder";
 import { SearchableColumnSelect } from "./SearchableColumnSelect";
 import { FilterPanel } from "./FilterPanel";
+import { WorkbenchHeights, WorkbenchTab } from "../utils/workbenchPanel";
 
 const ROW_HEIGHT = 28;
 const CHUNK_SIZE = 700;
@@ -151,6 +152,8 @@ interface ComparisonModel {
 }
 
 interface ComparisonViewProps {
+  heightPreferences?: WorkbenchHeights;
+  onHeightPreferenceChange?: (tab: WorkbenchTab, height: number) => void;
   tables: LoadedTable[];
   baseTableName: string;
   baseSchema: ColumnInfo[];
@@ -792,6 +795,8 @@ function useComparisonCache(model: ComparisonModel, dataVersion: number) {
 }
 
 export function ComparisonView({
+  heightPreferences,
+  onHeightPreferenceChange,
   tables,
   baseTableName,
   baseSchema,
@@ -1516,6 +1521,8 @@ export function ComparisonView({
 
       {filterPanelMounted && (
         <FilterPanel
+          heightPreferences={heightPreferences}
+          onHeightPreferenceChange={onHeightPreferenceChange}
           columns={model.filterColumns}
           activeFilters={comparisonFilters}
           activeTable={null}

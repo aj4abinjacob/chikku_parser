@@ -156,7 +156,7 @@ export function DatasetOverviewPanel({
     return (
       <div className="dataset-overview dataset-overview-state is-error">
         <Icon icon="warning-sign" size={18} />
-        <strong>Overview unavailable</strong>
+        <strong>Summary unavailable</strong>
         <span>{error}</span>
         <Button small icon="refresh" text="Try again" onClick={loadOverview} />
       </div>
