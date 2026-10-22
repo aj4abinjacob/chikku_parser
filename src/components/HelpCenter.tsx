@@ -202,7 +202,7 @@ const HELP_TOPICS: HelpTopic[] = [
       },
       {
         title: "Group View (interactive grouping)",
-        body: "For an expandable grouped rollup, use the green group controls beside columns in the sidebar. The Group View toolbar can expand or collapse groups, show a grand total, and change the aggregate applied to every value column (Count by default). Each value-column header shows which aggregate its cells contain.",
+        body: "For an expandable grouped rollup, use the green group controls beside columns in the sidebar. Click a group value to select it, then use Cmd/Ctrl+C to copy it; Shift-click or drag to select a range. Use the arrow beside a group value to expand or collapse it. The Group View toolbar can expand or collapse groups, show a grand total, and change the aggregate applied to every value column (Count by default). Each value-column header shows which aggregate its cells contain.",
       },
     ],
   },

@@ -14952,8 +14952,26 @@ button.dg-stats-metric {
   display: flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
+  cursor: default;
   overflow: hidden;
+}
+
+.dg-pivot-expand-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  width: 14px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--control-focus);
+    outline-offset: 1px;
+  }
 }
 
 .dg-pivot-expand-icon {

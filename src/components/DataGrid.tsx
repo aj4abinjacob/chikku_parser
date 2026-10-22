@@ -6,6 +6,7 @@ import { SoftSelect } from "./SoftSelect";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SortColumn, PivotFlatRow, PivotGroupColumn, PivotGroupSortMode, PivotAggFunction, ColumnStats, ColumnStatsUniqueValue, ColOpStep, ColOpType, UndoStrategy, QcSession, INTERNAL_ROW_ID_VALUE, LinkPreviewMetadata } from "../types";
 import { getEnabledLinkPreviewTarget } from "../utils/linkPreview";
+import { buildCellRange, cellKey, getSelectionText } from "../utils/gridSelection";
 
 const TOOLTIP_DELAY = 600; // ms before tooltip appears
 
@@ -29,10 +30,6 @@ const AGG_LABELS: Record<string, string> = {
   MAX: "max",
   MEDIAN: "median",
 };
-
-function cellKey(row: number, col: string): string {
-  return `${row}:${col}`;
-}
 
 type ColumnStatsPanelState = {
   column: string;
@@ -585,6 +582,10 @@ export function DataGrid({
   const groupColWidth = pivotMode ? (columnWidths[PIVOT_GROUP_COL_KEY] ?? PIVOT_GROUP_COL_WIDTH) : 50;
   // Use dataColumns (excludes grouped cols) for pivot mode width
   const displayColumns = pivotMode ? dataColumns : columns;
+  const selectionColumns = useMemo(
+    () => pivotMode ? [PIVOT_GROUP_COL_KEY, ...displayColumns] : displayColumns,
+    [pivotMode, displayColumns]
+  );
   const totalWidth =
     groupColWidth + displayColumns.reduce((sum, col) => sum + (columnWidths[col] ?? DEFAULT_COLUMN_WIDTH), 0);
 
@@ -925,19 +926,9 @@ export function DataGrid({
       toRow: number,
       toCol: string
     ): Set<string> => {
-      const r0 = Math.min(fromRow, toRow);
-      const r1 = Math.max(fromRow, toRow);
-      const c0 = Math.min(columns.indexOf(fromCol), columns.indexOf(toCol));
-      const c1 = Math.max(columns.indexOf(fromCol), columns.indexOf(toCol));
-      const s = new Set<string>();
-      for (let r = r0; r <= r1; r++) {
-        for (let c = c0; c <= c1; c++) {
-          s.add(cellKey(r, columns[c]));
-        }
-      }
-      return s;
+      return buildCellRange(selectionColumns, { row: fromRow, col: fromCol }, { row: toRow, col: toCol });
     },
-    [columns]
+    [selectionColumns]
   );
 
   const handleCellMouseDown = useCallback(
@@ -945,6 +936,10 @@ export function DataGrid({
       // Only handle left button
       if (e.button !== 0) return;
       const meta = e.metaKey || e.ctrlKey;
+
+      // Prevent text selection and focus the grid for keyboard copying.
+      e.preventDefault();
+      containerRef.current?.focus();
 
       if (e.shiftKey && anchor.current) {
         // Shift+click range — same behavior as before, no drag
@@ -954,11 +949,6 @@ export function DataGrid({
         setSelected(next);
         return;
       }
-
-      // Prevent text selection during drag
-      e.preventDefault();
-      // Re-focus the container so Cmd+C keydown listener works
-      containerRef.current?.focus();
 
       // Start drag selection
       dragSelecting.current = true;
@@ -977,7 +967,7 @@ export function DataGrid({
         setSelected(new Set([cellKey(rowIdx, col)]));
       }
     },
-    [columns, selected, buildRange]
+    [selected, buildRange]
   );
 
   const handleCellMouseEnterDrag = useCallback(
@@ -1023,45 +1013,21 @@ export function DataGrid({
 
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "c" && selected.size > 0) {
-        const parsed = [...selected].map((k) => {
-          const i = k.indexOf(":");
-          return { row: Number(k.slice(0, i)), col: k.slice(i + 1) };
-        });
-
-        const rowNums = [...new Set(parsed.map((p) => p.row))].sort(
-          (a, b) => a - b
-        );
-        const colNames = columns.filter((c) =>
-          parsed.some((p) => p.col === c)
-        );
-
-        const text = rowNums
-          .map((r) => {
-            if (pivotMode && pivotFlatRows) {
-              const flatRow = pivotFlatRows[r];
-              if (!flatRow) return "";
-              if (flatRow.type === "group") {
-                return colNames
-                  .map((c) =>
-                    selected.has(cellKey(r, c)) ? getAggValue(flatRow.aggregates, c) : ""
-                  )
-                  .join("\t");
-              }
-              const row = flatRow.data;
-              return colNames
-                .map((c) =>
-                  selected.has(cellKey(r, c)) ? formatCellForColumn(row?.[c], c) : ""
-                )
-                .join("\t");
+        const text = getSelectionText(selected, selectionColumns, (r, c) => {
+          if (pivotMode && pivotFlatRows) {
+            const flatRow = pivotFlatRows[r];
+            if (!flatRow) return "";
+            if (c === PIVOT_GROUP_COL_KEY) {
+              if (flatRow.type !== "group") return "";
+              return flatRow.groupValue == null ? "NULL" : formatCell(flatRow.groupValue, displayDecimalPlaces);
             }
-            const row = getRow(r);
-            return colNames
-              .map((c) =>
-                selected.has(cellKey(r, c)) ? formatCellForColumn(row?.[c], c) : ""
-              )
-              .join("\t");
-          })
-          .join("\n");
+            if (flatRow.type === "group") {
+              return getAggValue(flatRow.aggregates, c);
+            }
+            return formatCellForColumn(flatRow.data?.[c], c);
+          }
+          return formatCellForColumn(getRow(r)?.[c], c);
+        });
 
         e.preventDefault();
         navigator.clipboard.writeText(text);
@@ -1070,7 +1036,7 @@ export function DataGrid({
 
     el.addEventListener("keydown", handler);
     return () => el.removeEventListener("keydown", handler);
-  }, [selected, getRow, columns, pivotMode, pivotFlatRows, formatCellForColumn]);
+  }, [selected, getRow, selectionColumns, pivotMode, pivotFlatRows, formatCellForColumn, displayDecimalPlaces]);
 
   if (columns.length === 0 || (effectiveRowCount === 0 && !pivotMode)) {
     return (
@@ -1489,6 +1455,7 @@ export function DataGrid({
 
                 if (flatRow.type === "group") {
                   const indent = 16 + flatRow.depth * 24;
+                  const groupText = flatRow.groupValue == null ? "NULL" : formatCell(flatRow.groupValue, displayDecimalPlaces);
                   return (
                     <div
                       key={virtualRow.index}
@@ -1501,26 +1468,46 @@ export function DataGrid({
                         height: rowHeight,
                       }}
                     >
-                      {/* Dedicated Group column — click to expand/collapse */}
+                      {/* Group values select like data cells; the arrow expands/collapses. */}
                       <div
-                        className="dg-cell dg-pivot-group-cell"
+                        className={`dg-cell dg-pivot-group-cell${selected.has(cellKey(virtualRow.index, PIVOT_GROUP_COL_KEY)) ? " cell-selected" : ""}`}
                         style={{
                           width: groupColWidth,
                           paddingLeft: indent,
-                          cursor: "pointer",
                         }}
-                        onClick={() => onToggleExpand?.(flatRow.key)}
+                        onMouseDown={(e) => handleCellMouseDown(virtualRow.index, PIVOT_GROUP_COL_KEY, e)}
+                        onMouseEnter={(e) => {
+                          handleCellMouseEnterDrag(virtualRow.index, PIVOT_GROUP_COL_KEY, e);
+                          if (!dragSelecting.current) handleCellMouseEnter(e, groupText);
+                        }}
+                        onMouseLeave={handleCellMouseLeave}
                       >
-                        <Icon
-                          icon={flatRow.expanded ? "chevron-down" : "chevron-right"}
-                          size={14}
-                          className="dg-pivot-expand-icon"
-                        />
+                        <button
+                          type="button"
+                          className="dg-pivot-expand-button"
+                          aria-label={`${flatRow.expanded ? "Collapse" : "Expand"} group ${groupText}`}
+                          aria-expanded={!!flatRow.expanded}
+                          title={flatRow.expanded ? "Collapse group" : "Expand group"}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelected(new Set());
+                            anchor.current = null;
+                            endDragSelection();
+                            onToggleExpand?.(flatRow.key);
+                          }}
+                        >
+                          <Icon
+                            icon={flatRow.expanded ? "chevron-down" : "chevron-right"}
+                            size={14}
+                            className="dg-pivot-expand-icon"
+                          />
+                        </button>
                         <span
                           className={`dg-pivot-group-value${flatRow.groupValue == null ? " dg-null-value" : ""}`}
                           title={flatRow.groupValue == null ? "NULL" : String(flatRow.groupValue)}
                         >
-                          {flatRow.groupValue == null ? "NULL" : formatCell(flatRow.groupValue, displayDecimalPlaces)}
+                          {groupText}
                         </span>
                         <span className="dg-pivot-group-count">
                           ({flatRow.groupCount?.toLocaleString()})
@@ -1574,8 +1561,10 @@ export function DataGrid({
                   >
                     {/* Empty Group column for data rows */}
                     <div
-                      className="dg-cell dg-pivot-data-group-cell"
+                      className={`dg-cell dg-pivot-data-group-cell${selected.has(cellKey(virtualRow.index, PIVOT_GROUP_COL_KEY)) ? " cell-selected" : ""}`}
                       style={{ width: groupColWidth }}
+                      onMouseDown={(e) => handleCellMouseDown(virtualRow.index, PIVOT_GROUP_COL_KEY, e)}
+                      onMouseEnter={(e) => handleCellMouseEnterDrag(virtualRow.index, PIVOT_GROUP_COL_KEY, e)}
                     />
                     {/* Data columns: show actual cell values */}
                     {dataColumns.map((col) => {
