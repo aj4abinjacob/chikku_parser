@@ -436,6 +436,7 @@ export interface ColOpStep {
   id: number;
   opType: ColOpType;
   column: string;
+  renamedTo?: string;
   description: string;
   backupTable: string;   // only used in per-step mode
   timestamp: number;

@@ -29,10 +29,11 @@ interface SidebarProps {
   onReorderColumns: (newOrder: string[]) => void;
   onSort: (column: string, addLevel: boolean) => void;
   onClearSort: () => void;
+  onResetView: () => void;
   pivotConfig: PivotViewConfig | null;
   onPivotGroup: (column: string, addLevel: boolean) => void;
   onClearPivotGroups: () => void;
-  onDataOperation: (sql: string, description?: string) => void;
+  onDataOperation: (sql: string, description?: string, columnRenames?: Record<string, string>) => void;
   onSampleTable: (n: number, isPercent: boolean) => void;
   onDeleteTable: (tableName: string) => void;
   onCombine: (selectedNames: string[]) => void;
@@ -205,6 +206,7 @@ export function Sidebar({
   onReorderColumns,
   onSort,
   onClearSort,
+  onResetView,
   pivotConfig,
   onPivotGroup,
   onClearPivotGroups,
@@ -1129,6 +1131,13 @@ export function Sidebar({
       {/* Data operation + filter buttons */}
       {!documentWorkspaceActive && activeTable && schema.length > 0 && (
         <div className="sidebar-section sidebar-actions">
+          <Button
+            icon="reset"
+            text="Reset view"
+            title="Show all columns in their original order and clear filters, sorting, and grouping"
+            onClick={onResetView}
+            small
+          />
           <Button
             icon="folder-open"
             text="Open"

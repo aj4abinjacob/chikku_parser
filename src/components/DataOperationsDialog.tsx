@@ -68,7 +68,7 @@ interface DataOperationsDialogProps {
   onClose: () => void;
   activeTable: string | null;
   schema: ColumnInfo[];
-  onApply: (sql: string, description?: string) => void;
+  onApply: (sql: string, description?: string, columnRenames?: Record<string, string>) => void;
   onSampleTable: (n: number, isPercent: boolean) => void;
 }
 
@@ -577,7 +577,9 @@ export function DataOperationsDialog({
       description = `${OP_LABELS[opType]} on "${sourceCol}"${effectiveTarget ? ` → "${effectiveTarget}"` : ""}`;
     }
 
-    onApply(finalSql, description);
+    onApply(finalSql, description, opType === "rename_column"
+      ? Object.fromEntries(renameRows.filter((row) => row.sourceCol && row.newName.trim()).map((row) => [row.sourceCol, row.newName.trim()]))
+      : undefined);
     onClose();
     resetForm();
   };

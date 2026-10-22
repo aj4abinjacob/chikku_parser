@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Classes, Dialog, Icon, Intent, Tag } from "@blueprintjs/core";
 import { getCurrentWindow, type DragDropEvent } from "@tauri-apps/api/window";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, FilterNode, SheetInfo, hasActiveFilters, countConditions, isFilterGroup, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, SortColumn, PivotAggFunction, PivotGroupColumn, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions, ColumnStats, ColumnStatsUniqueValue, ComparisonViewConfig, DocumentWorkspaceFileActions, QcCreateConfig, QcOptionSortMode, QcSession, QcValueType, DatasetOverview, ColumnStatsTopValue } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, FilterNode, SheetInfo, hasActiveFilters, countConditions, isFilterGroup, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, PivotAggFunction, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions, ColumnStats, ColumnStatsUniqueValue, ComparisonViewConfig, DocumentWorkspaceFileActions, QcCreateConfig, QcOptionSortMode, QcSession, QcValueType, DatasetOverview, ColumnStatsTopValue } from "../types";
 import { Sidebar } from "./Sidebar";
 import { DataGrid } from "./DataGrid";
 import { ComparisonView, createDefaultComparisonConfig } from "./ComparisonView";
@@ -27,6 +27,7 @@ import { useChunkCache } from "../hooks/useChunkCache";
 import { usePivotCache } from "../hooks/usePivotCache";
 import { useExternalFileChange } from "../hooks/useExternalFileChange";
 import { isTauri } from "../tauri-api";
+import { createDefaultViewState, reconcileViewState, renameViewColumns, SchemaRequestGate, TableViewStore } from "../utils/tableViews";
 
 const FILTER_PANEL_EXIT_MS = 180;
 const DEFAULT_DISPLAY_DECIMAL_PLACES = 4;
@@ -312,73 +313,6 @@ function buildQcNotesBatchUpdateSql(tableName: string, session: QcSession): stri
   return `UPDATE ${escapeIdent(tableName)} SET ${escapeIdent(notesColumn)} = CASE ${cases} ELSE ${escapeIdent(notesColumn)} END WHERE rowid IN (${rowIds})`;
 }
 
-function mapFilterColumns(
-  group: FilterGroup,
-  mapColumn: (column: string) => string | null
-): FilterGroup {
-  const children: FilterNode[] = [];
-
-  for (const child of group.children) {
-    if (isFilterGroup(child)) {
-      const nested = mapFilterColumns(child, mapColumn);
-      if (nested.children.length > 0) children.push(nested);
-      continue;
-    }
-
-    const column = mapColumn(child.column);
-    if (!column) continue;
-
-    const next = { ...child, column };
-    const operator = child.operator as string;
-    if ((operator === "EQUALS COLUMN" || operator === "DOES NOT EQUAL COLUMN") && child.value) {
-      const value = mapColumn(child.value);
-      if (!value) continue;
-      next.value = value;
-    }
-    children.push(next);
-  }
-
-  return { ...group, children };
-}
-
-function renameColumnInViewState(viewState: ViewState, from: string, to: string): ViewState {
-  return {
-    ...viewState,
-    visibleColumns: viewState.visibleColumns.map((c) => c === from ? to : c),
-    columnOrder: viewState.columnOrder.map((c) => c === from ? to : c),
-    sortColumns: viewState.sortColumns.map((sc) => sc.column === from ? { ...sc, column: to } : sc),
-    filters: mapFilterColumns(viewState.filters, (column) => column === from ? to : column),
-    pivotConfig: viewState.pivotConfig
-      ? {
-        ...viewState.pivotConfig,
-        groupColumns: viewState.pivotConfig.groupColumns.map((gc) => gc.column === from ? { ...gc, column: to } : gc),
-      }
-      : null,
-  };
-}
-
-function deleteColumnFromViewState(viewState: ViewState, column: string): ViewState {
-  const pivotConfig = viewState.pivotConfig
-    ? {
-      ...viewState.pivotConfig,
-      groupColumns: viewState.pivotConfig.groupColumns.filter((gc) => gc.column !== column),
-    }
-    : null;
-
-  return {
-    ...viewState,
-    visibleColumns: viewState.visibleColumns.filter((c) => c !== column),
-    columnOrder: viewState.columnOrder.filter((c) => c !== column),
-    sortColumns: viewState.sortColumns.filter((sc) => sc.column !== column),
-    filters: mapFilterColumns(viewState.filters, (c) => c === column ? null : c),
-    pivotConfig,
-  };
-}
-
-function isSchemaColOp(opType: ColOpType): boolean {
-  return opType === "rename_column" || opType === "delete_column";
-}
-
 interface PendingExcelImport {
   filePath: string;
   fileName: string;
@@ -512,13 +446,9 @@ export function App(): React.ReactElement {
   const [rowOpsUndoStrategy, setRowOpsUndoStrategy] = useState<UndoStrategy>("per-step");
   const [rowOpsNextId, setRowOpsNextId] = useState(1);
   const [dataVersion, setDataVersion] = useState(0);
-  const [viewState, setViewState] = useState<ViewState>({
-    visibleColumns: [],
-    columnOrder: [],
-    filters: { logic: "AND", children: [] },
-    sortColumns: [],
-    pivotConfig: null,
-  });
+  const [viewState, setCurrentViewState] = useState<ViewState>(createDefaultViewState);
+  const tableViewsRef = useRef(new TableViewStore());
+  const schemaRequestsRef = useRef(new SchemaRequestGate());
   const [comparisonConfig, setComparisonConfig] = useState<ComparisonViewConfig | null>(null);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [savedViewNextId, setSavedViewNextId] = useState(1);
@@ -586,6 +516,56 @@ export function App(): React.ReactElement {
       return next;
     });
   }, []);
+
+  const updateTableView = useCallback((tableName: string, updater: React.SetStateAction<ViewState>) => {
+    const next = tableViewsRef.current.update(tableName, updater);
+    if (activeTableRef.current === tableName) setCurrentViewState(next);
+    return next;
+  }, []);
+
+  const setViewState = useCallback((updater: React.SetStateAction<ViewState>) => {
+    const tableName = activeTableRef.current;
+    if (tableName) updateTableView(tableName, updater);
+  }, [updateTableView]);
+
+  const applyTableSchema = useCallback((tableName: string, nextSchema: ColumnInfo[], renames?: Record<string, string>) => {
+    // A completed request for a removed file must not restore its cached view.
+    if (!tablesRef.current.some((table) => table.tableName === tableName)) return;
+    const columns = nextSchema.map((column) => column.column_name);
+    updateTableView(tableName, (previous) => reconcileViewState(
+      renames ? renameViewColumns(previous, renames) : previous,
+      columns
+    ));
+    setTables((previous) => previous.map((table) => table.tableName === tableName ? { ...table, schema: nextSchema } : table));
+    if (activeTableRef.current === tableName) {
+      schemaRequestsRef.current.invalidate();
+      setSchema(nextSchema);
+    }
+  }, [updateTableView]);
+
+  const activateTable = useCallback((tableName: string | null, loadedTable?: LoadedTable, reset = false) => {
+    if (tableName === activeTableRef.current && !reset) return;
+    schemaRequestsRef.current.invalidate();
+    const table = loadedTable ?? tablesRef.current.find((candidate) => candidate.tableName === tableName);
+    const columns = table?.schema.map((column) => column.column_name) ?? [];
+    const isDocument = !!table && !table.filePath.startsWith("(") && isDocumentWorkspaceFilePath(table.filePath);
+    activeTableRef.current = tableName;
+    setActiveTable(tableName);
+    setSchema(isDocument ? [] : table?.schema ?? []);
+    setCurrentViewState(tableName && !isDocument
+      ? tableViewsRef.current.get(tableName, columns)
+      : createDefaultViewState());
+    setComparisonConfig(null);
+    setFilterPanelOpen(false);
+    setResetKey((key) => key + 1);
+  }, []);
+
+  const handleResetView = useCallback(() => {
+    if (!activeTableRef.current) return;
+    setViewState(createDefaultViewState(schema.map((column) => column.column_name)));
+    setComparisonConfig(null);
+    setResetKey((key) => key + 1);
+  }, [schema, setViewState]);
 
   const comparisonActive = !!comparisonConfig && comparisonConfig.baseTable === activeTable;
 
@@ -918,31 +898,18 @@ export function App(): React.ReactElement {
         return next;
       });
 
-      if (newTables.length > 0) {
-        setActiveTable(nextActiveTable ?? newTables[0].tableName);
-        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
-        setResetKey((k) => k + 1);
-        setFilterPanelOpen(false);
-      } else if (replace) {
-        setActiveTable(null);
-        setViewState((prev) => ({
-          ...prev,
-          filters: { logic: "AND", children: [] },
-          visibleColumns: [],
-          columnOrder: [],
-          sortColumns: [],
-          pivotConfig: null,
-        }));
-        setResetKey((k) => k + 1);
-        setFilterPanelOpen(false);
-      }
+      if (replace) tableViewsRef.current.clear();
+      tableViewsRef.current.retain(newTables.map((table) => table.tableName));
+      tablesRef.current = newTables;
+      const nextTable = nextActiveTable ?? newTables[0]?.tableName ?? null;
+      if (newTables.length > 0 || replace) activateTable(nextTable, undefined, replace);
 
       if (invalidateData) {
         setSchemaVersion((v) => v + 1);
         setDataVersion((v) => v + 1);
       }
     },
-    [cleanupReplacedTables, makeTableHistory]
+    [cleanupReplacedTables, makeTableHistory, activateTable]
   );
 
   const recordHistoryEntry = useCallback(
@@ -1351,21 +1318,11 @@ export function App(): React.ReactElement {
           : table
       )
     );
-    setSchema(result.schema);
-    if (fromDisk === true) {
-      setViewState((prev) => ({
-        ...prev,
-        filters: { logic: "AND", children: [] },
-        visibleColumns: [],
-        columnOrder: [],
-        sortColumns: [],
-        pivotConfig: null,
-      }));
-    }
+    applyTableSchema(currentTable.tableName, result.schema);
     setSchemaVersion((v) => v + 1);
     setDataVersion((v) => v + 1);
     setResetKey((k) => k + 1);
-  }, [clearTableOpsState, loadSingleFile]);
+  }, [clearTableOpsState, loadSingleFile, applyTableSchema]);
 
   const handleReloadChangedFile = useCallback(async () => {
     setReloadingActiveFile(true);
@@ -1558,44 +1515,21 @@ export function App(): React.ReactElement {
     if (documentWorkspaceActive) setFilterPanelOpen(false);
   }, [documentWorkspaceActive]);
 
-  // When active table changes, refresh schema and reset columns
+  // Refresh schema without replacing this file's view, and ignore late responses.
   useEffect(() => {
-    if (!activeTable) {
-      setSchema([]);
-      setViewState((prev) => ({ ...prev, visibleColumns: [], columnOrder: [] }));
-      setComparisonConfig(null);
-      setFilterPanelOpen(false);
-      return;
-    }
-
+    if (!activeTable) return;
     const currentTable = tablesRef.current.find((table) => table.tableName === activeTable);
-    if (currentTable && !currentTable.filePath.startsWith("(") && isDocumentWorkspaceFilePath(currentTable.filePath)) {
-      setSchema([]);
-      setComparisonConfig(null);
-      setFilterPanelOpen(false);
-      setViewState((prev) => ({
-        ...prev,
-        visibleColumns: [],
-        columnOrder: [],
-        sortColumns: [],
-        pivotConfig: null,
-      }));
-      return;
-    }
-
-    const fetchSchema = async () => {
-      try {
-        const desc = await window.api.describe(activeTable);
-        setSchema(desc);
-        const allCols = desc.map((c: ColumnInfo) => c.column_name);
-        setViewState((prev) => ({ ...prev, visibleColumns: allCols, columnOrder: allCols }));
-      } catch (err) {
-        console.error("Schema fetch error:", err);
-      }
-    };
-
-    fetchSchema();
-  }, [activeTable, schemaVersion]);
+    if (currentTable && !currentTable.filePath.startsWith("(") && isDocumentWorkspaceFilePath(currentTable.filePath)) return;
+    let cancelled = false;
+    const isCurrentRequest = schemaRequestsRef.current.start();
+    void window.api.describe(activeTable).then((description) => {
+      if (cancelled || !isCurrentRequest() || activeTableRef.current !== activeTable) return;
+      applyTableSchema(activeTable, description);
+    }).catch((err) => {
+      if (!cancelled) console.error("Schema fetch error:", err);
+    });
+    return () => { cancelled = true; };
+  }, [activeTable, schemaVersion, applyTableSchema]);
 
   useEffect(() => {
     if (!comparisonConfig) return;
@@ -1655,16 +1589,11 @@ export function App(): React.ReactElement {
       console.error("Drop table error:", err);
     }
     // Note: views are global now — keep them even when the source table is deleted
-    setTables((prev) => {
-      const remaining = prev.filter((t) => t.tableName !== tableName);
-      if (activeTableRef.current === tableName) {
-        const next = remaining.length > 0 ? remaining[0].tableName : null;
-        setActiveTable(next);
-        setViewState((prev) => ({ ...prev, filters: { logic: "AND", children: [] } }));
-        setResetKey((k) => k + 1);
-      }
-      return remaining;
-    });
+    const remaining = tablesRef.current.filter((table) => table.tableName !== tableName);
+    tablesRef.current = remaining;
+    setTables(remaining);
+    tableViewsRef.current.delete(tableName);
+    if (activeTableRef.current === tableName) activateTable(remaining[0]?.tableName ?? null);
     // Remove history for the deleted table
     setTableHistories((prev) => {
       const next = new Map(prev);
@@ -1682,7 +1611,7 @@ export function App(): React.ReactElement {
       qcDirtyTablesRef.current = next;
       return next;
     });
-  }, []);
+  }, [activateTable]);
 
   // Open the column mapping dialog with selected tables
   const handleCombineOpen = useCallback((selectedNames: string[]) => {
@@ -1717,20 +1646,12 @@ export function App(): React.ReactElement {
 
       setTables((prev) => [...prev, combinedTable]);
       initializeTableHistory(combinedTable);
-      setActiveTable(combinedName);
-      setViewState((prev) => ({
-        ...prev,
-        filters: { logic: "AND", children: [] },
-        visibleColumns: [],
-        columnOrder: [],
-        sortColumns: [],
-      }));
-      setResetKey((k) => k + 1);
+      activateTable(combinedName, combinedTable);
       setCombineDialogOpen(false);
     } catch (err) {
       console.error("Combine error:", err);
     }
-  }, [initializeTableHistory]);
+  }, [initializeTableHistory, activateTable]);
 
   // Column visibility toggle
   const toggleColumn = useCallback(
@@ -2026,31 +1947,12 @@ export function App(): React.ReactElement {
       );
 
       const newSchema = await window.api.describe(activeTable);
-      setSchema(newSchema);
-      setTables((prev) =>
-        prev.map((table) =>
-          table.tableName === activeTable
-            ? { ...table, schema: newSchema }
-            : table
-        )
-      );
-      const addedColumns = notesColumnName ? [columnName, notesColumnName] : [columnName];
-      setViewState((prev) => ({
-        ...prev,
-        visibleColumns: addedColumns.reduce(
-          (acc, col) => (acc.includes(col) ? acc : [...acc, col]),
-          prev.visibleColumns
-        ),
-        columnOrder: addedColumns.reduce(
-          (acc, col) => (acc.includes(col) ? acc : [...acc, col]),
-          prev.columnOrder
-        ),
-      }));
+      applyTableSchema(activeTable, newSchema);
       setSchemaVersion((v) => v + 1);
       setDataVersion((v) => v + 1);
       setResetKey((k) => k + 1);
     },
-    [activeTable, markQcTableDirty, recordHistoryEntry, schema]
+    [activeTable, markQcTableDirty, recordHistoryEntry, schema, applyTableSchema]
   );
 
   const handleQcCellChange = useCallback(
@@ -2272,16 +2174,7 @@ export function App(): React.ReactElement {
 
   const handleApplyView = useCallback((view: SavedView) => {
     const vs: ViewState = JSON.parse(JSON.stringify(view.viewState));
-    // Silently filter visible columns and column order to what exists in current schema
-    const currentCols = new Set(schema.map((c) => c.column_name));
-    vs.columnOrder = vs.columnOrder.filter((c) => currentCols.has(c));
-    vs.visibleColumns = vs.visibleColumns.filter((c) => currentCols.has(c));
-    // If columnOrder is empty after filtering, fall back to current schema order
-    if (vs.columnOrder.length === 0) {
-      vs.columnOrder = schema.map((c) => c.column_name);
-      vs.visibleColumns = [...vs.columnOrder];
-    }
-    setViewState(vs);
+    setViewState(reconcileViewState(vs, schema.map((column) => column.column_name)));
     setResetKey((k) => k + 1);
   }, [schema]);
 
@@ -2309,18 +2202,17 @@ export function App(): React.ReactElement {
 
   // Data operation: run SQL to transform columns/rows
   const handleDataOperation = useCallback(
-    async (sql: string, description?: string) => {
+    async (sql: string, description?: string, columnRenames?: Record<string, string>) => {
       if (!activeTable) return;
       try {
         await window.api.exec(sql);
         recordHistoryEntry(activeTable, "data_op", description || "Data operation", [sql]);
-        setSchemaVersion((v) => v + 1);
         setDataVersion((v) => v + 1);
         setResetKey((k) => k + 1);
 
         // Refresh schema (operations like remove_duplicates use CREATE OR REPLACE)
         const newSchema = await window.api.describe(activeTable);
-        setSchema(newSchema);
+        applyTableSchema(activeTable, newSchema, columnRenames);
 
         // Update row count in tables state
         const countResult = await window.api.query(
@@ -2337,7 +2229,7 @@ export function App(): React.ReactElement {
         console.error("Data operation error:", err);
       }
     },
-    [activeTable, recordHistoryEntry]
+    [activeTable, recordHistoryEntry, applyTableSchema]
   );
 
   // Sample table: create a new table with a random sample of rows
@@ -2364,20 +2256,12 @@ export function App(): React.ReactElement {
 
         setTables((prev) => [...prev, sampleTable]);
         initializeTableHistory(sampleTable);
-        setActiveTable(sampleName);
-        setViewState((prev) => ({
-          ...prev,
-          filters: { logic: "AND", children: [] },
-          visibleColumns: [],
-          columnOrder: [],
-          sortColumns: [],
-        }));
-        setResetKey((k) => k + 1);
+        activateTable(sampleName, sampleTable);
       } catch (err) {
         console.error("Sample table error:", err);
       }
     },
-    [activeTable, initializeTableHistory]
+    [activeTable, initializeTableHistory, activateTable]
   );
 
   // Create aggregate table from a SELECT SQL
@@ -2403,20 +2287,12 @@ export function App(): React.ReactElement {
 
         setTables((prev) => [...prev, aggTable]);
         initializeTableHistory(aggTable);
-        setActiveTable(aggName);
-        setViewState((prev) => ({
-          ...prev,
-          filters: { logic: "AND", children: [] },
-          visibleColumns: [],
-          columnOrder: [],
-          sortColumns: [],
-        }));
-        setResetKey((k) => k + 1);
+        activateTable(aggName, aggTable);
       } catch (err) {
         console.error("Aggregate table error:", err);
       }
     },
-    [initializeTableHistory]
+    [initializeTableHistory, activateTable]
   );
 
   // Create pivot table from a PIVOT SQL
@@ -2442,20 +2318,12 @@ export function App(): React.ReactElement {
 
         setTables((prev) => [...prev, pivotTable]);
         initializeTableHistory(pivotTable);
-        setActiveTable(pivotName);
-        setViewState((prev) => ({
-          ...prev,
-          filters: { logic: "AND", children: [] },
-          visibleColumns: [],
-          columnOrder: [],
-          sortColumns: [],
-        }));
-        setResetKey((k) => k + 1);
+        activateTable(pivotName, pivotTable);
       } catch (err) {
         console.error("Pivot table error:", err);
       }
     },
-    [initializeTableHistory]
+    [initializeTableHistory, activateTable]
   );
 
   // Lookup merge: join data from another table into the active table
@@ -2497,22 +2365,14 @@ export function App(): React.ReactElement {
           };
           setTables((prev) => [...prev, mergeTable]);
           initializeTableHistory(mergeTable);
-          setActiveTable(mergeName);
-          setViewState((prev) => ({
-            ...prev,
-            filters: { logic: "AND", children: [] },
-            visibleColumns: [],
-            columnOrder: [],
-            sortColumns: [],
-          }));
-          setResetKey((k) => k + 1);
+          activateTable(mergeName, mergeTable);
         }
       } catch (err) {
         console.error("Lookup merge error:", err);
         throw err;
       }
     },
-    [activeTable, initializeTableHistory, recordHistoryEntry]
+    [activeTable, initializeTableHistory, recordHistoryEntry, activateTable]
   );
 
   // ── Column Ops handlers ──
@@ -2645,6 +2505,7 @@ export function App(): React.ReactElement {
           id: stepId,
           opType,
           column,
+          ...(renameTarget ? { renamedTo: renameTarget } : {}),
           description,
           backupTable: backupName,
           timestamp: Date.now(),
@@ -2658,28 +2519,10 @@ export function App(): React.ReactElement {
         // Record in global history
         recordHistoryEntry(currentTable, "col_op", description, executedSql);
 
-        // Refresh schema (column type may have changed from ALTER)
+        // Apply explicit renames before removing stale schema references.
         const newSchema = await window.api.describe(currentTable);
-        setSchema(newSchema);
-        setTables((prev) =>
-          prev.map((t) =>
-            t.tableName === currentTable
-              ? { ...t, schema: newSchema }
-              : t
-          )
-        );
-
-        if (opType === "rename_column" && renameTarget) {
-          setViewState((prev) => renameColumnInViewState(prev, column, renameTarget));
-        } else if (opType === "delete_column") {
-          setViewState((prev) => deleteColumnFromViewState(prev, column));
-        } else if (targetMode === "new_column" && targetColumn) {
-          setViewState((prev) => ({
-            ...prev,
-            visibleColumns: prev.visibleColumns.includes(targetColumn) ? prev.visibleColumns : [...prev.visibleColumns, targetColumn],
-            columnOrder: prev.columnOrder.includes(targetColumn) ? prev.columnOrder : [...prev.columnOrder, targetColumn],
-          }));
-        }
+        applyTableSchema(currentTable, newSchema,
+          opType === "rename_column" && renameTarget ? { [column]: renameTarget } : undefined);
 
       } catch (err) {
         // If backup was created but UPDATE failed, drop the backup
@@ -2689,7 +2532,7 @@ export function App(): React.ReactElement {
         throw err;
       }
     },
-    [activeTable, colOpsSteps, undoStrategy, colOpsNextId, viewState.filters, tables, schema, chooseUndoStrategy, recordHistoryEntry]
+    [activeTable, colOpsSteps, undoStrategy, colOpsNextId, viewState.filters, tables, schema, chooseUndoStrategy, recordHistoryEntry, applyTableSchema]
   );
 
   const handleColOpUndo = useCallback(
@@ -2707,25 +2550,10 @@ export function App(): React.ReactElement {
 
       // Refresh schema
       const newSchema = await window.api.describe(activeTable);
-      setSchema(newSchema);
-      setTables((prev) =>
-        prev.map((t) =>
-          t.tableName === activeTable
-            ? { ...t, schema: newSchema }
-            : t
-        )
-      );
-      const allCols = newSchema.map((c: ColumnInfo) => c.column_name);
-      setViewState((prev) => ({
-        ...prev,
-        filters: isSchemaColOp(lastStep.opType) ? { logic: "AND", children: [] } : prev.filters,
-        visibleColumns: allCols,
-        columnOrder: allCols,
-        sortColumns: isSchemaColOp(lastStep.opType) ? [] : prev.sortColumns,
-        pivotConfig: isSchemaColOp(lastStep.opType) ? null : prev.pivotConfig,
-      }));
+      applyTableSchema(activeTable, newSchema,
+        lastStep.renamedTo ? { [lastStep.renamedTo]: lastStep.column } : undefined);
     },
-    [activeTable, colOpsSteps]
+    [activeTable, colOpsSteps, applyTableSchema]
   );
 
   const handleColOpRevertAll = useCallback(
@@ -2744,26 +2572,17 @@ export function App(): React.ReactElement {
 
       // Refresh schema
       const newSchema = await window.api.describe(activeTable);
-      setSchema(newSchema);
-      setTables((prev) =>
-        prev.map((t) =>
-          t.tableName === activeTable
-            ? { ...t, schema: newSchema }
-            : t
-        )
-      );
-      const allCols = newSchema.map((c: ColumnInfo) => c.column_name);
-      const hadSchemaOps = colOpsSteps.some((step) => isSchemaColOp(step.opType));
-      setViewState((prev) => ({
-        ...prev,
-        filters: hadSchemaOps ? { logic: "AND", children: [] } : prev.filters,
-        visibleColumns: allCols,
-        columnOrder: allCols,
-        sortColumns: hadSchemaOps ? [] : prev.sortColumns,
-        pivotConfig: hadSchemaOps ? null : prev.pivotConfig,
-      }));
+      const reverseRenames: Record<string, string> = Object.create(null);
+      for (const currentColumn of schema.map((column) => column.column_name)) {
+        let original = currentColumn;
+        for (const step of [...colOpsSteps].reverse()) {
+          if (step.renamedTo === original) original = step.column;
+        }
+        if (original !== currentColumn) reverseRenames[currentColumn] = original;
+      }
+      applyTableSchema(activeTable, newSchema, reverseRenames);
     },
-    [activeTable, colOpsSteps]
+    [activeTable, colOpsSteps, schema, applyTableSchema]
   );
 
   const handleColOpClearAll = useCallback(
@@ -2845,7 +2664,7 @@ export function App(): React.ReactElement {
 
         // Refresh schema (remove_duplicates uses CREATE OR REPLACE)
         const newSchema = await window.api.describe(currentTable);
-        setSchema(newSchema);
+        applyTableSchema(currentTable, newSchema);
 
         // Update row count in tables state
         const countResult = await window.api.query(
@@ -2866,7 +2685,7 @@ export function App(): React.ReactElement {
         throw err;
       }
     },
-    [activeTable, rowOpsSteps, rowOpsUndoStrategy, rowOpsNextId, viewState.filters, tables, schema, chooseUndoStrategy, recordHistoryEntry]
+    [activeTable, rowOpsSteps, rowOpsUndoStrategy, rowOpsNextId, viewState.filters, tables, schema, chooseUndoStrategy, recordHistoryEntry, applyTableSchema]
   );
 
   const handleRowOpUndo = useCallback(
@@ -2885,7 +2704,7 @@ export function App(): React.ReactElement {
 
       // Refresh schema and row count
       const newSchema = await window.api.describe(activeTable);
-      setSchema(newSchema);
+      applyTableSchema(activeTable, newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${activeTable}"`
       );
@@ -2897,7 +2716,7 @@ export function App(): React.ReactElement {
         )
       );
     },
-    [activeTable, rowOpsSteps]
+    [activeTable, rowOpsSteps, applyTableSchema]
   );
 
   const handleRowOpRevertAll = useCallback(
@@ -2917,7 +2736,7 @@ export function App(): React.ReactElement {
 
       // Refresh schema and row count
       const newSchema = await window.api.describe(activeTable);
-      setSchema(newSchema);
+      applyTableSchema(activeTable, newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${activeTable}"`
       );
@@ -2929,7 +2748,7 @@ export function App(): React.ReactElement {
         )
       );
     },
-    [activeTable, rowOpsSteps]
+    [activeTable, rowOpsSteps, applyTableSchema]
   );
 
   const handleRowOpClearAll = useCallback(
@@ -3036,7 +2855,7 @@ export function App(): React.ReactElement {
 
       // Refresh schema and row count
       const newSchema = await window.api.describe(tableName);
-      setSchema(newSchema);
+      applyTableSchema(tableName, newSchema);
       const countResult = await window.api.query(
         `SELECT COUNT(*) as count FROM "${tableName}"`
       );
@@ -3048,7 +2867,7 @@ export function App(): React.ReactElement {
         )
       );
     },
-    []
+    [applyTableSchema]
   );
 
   const handleExportHistory = useCallback(async () => {
@@ -3114,26 +2933,13 @@ export function App(): React.ReactElement {
       return;
     }
 
-    if (activeTableRef.current !== nextTable) {
-      setActiveTable(nextTable);
-      setComparisonConfig(null);
-      setFilterPanelOpen(false);
-      setViewState((prev) => ({
-        ...prev,
-        filters: { logic: "AND", children: [] },
-        visibleColumns: [],
-        columnOrder: [],
-        sortColumns: [],
-        pivotConfig: null,
-      }));
-      setResetKey((key) => key + 1);
-    }
+    activateTable(nextTable);
 
     closeAfterQcExportRef.current = true;
     setCloseAfterQcExport(true);
     setQcQuitPromptOpen(false);
     setExportDialogOpen(true);
-  }, [finishQcClose]);
+  }, [finishQcClose, activateTable]);
 
   const handleQcExported = useCallback(async (tableNames: string[], fullData: boolean) => {
     if (!fullData) return;
@@ -3251,20 +3057,8 @@ export function App(): React.ReactElement {
               pivotConfig={viewState.pivotConfig}
               onPivotGroup={handlePivotGroup}
               onClearPivotGroups={handleClearPivotGroups}
-              onSelectTable={(name) => {
-                setActiveTable(name);
-                setComparisonConfig(null);
-                setFilterPanelOpen(false);
-                setViewState((prev) => ({
-                  ...prev,
-                  filters: { logic: "AND", children: [] },
-                  visibleColumns: [],
-                  columnOrder: [],
-                  sortColumns: [],
-                  pivotConfig: null,
-                }));
-                setResetKey((k) => k + 1);
-              }}
+              onSelectTable={activateTable}
+              onResetView={handleResetView}
               onToggleColumn={toggleColumn}
               onSetVisibleColumns={(cols: string[]) => {
                 setViewState((prev) => ({ ...prev, visibleColumns: cols }));
