@@ -1453,6 +1453,7 @@ export function DataGrid({
   const displayControls = <>
     <div className="dg-display-group" role="group" aria-label="Column width">
       <Button small minimal className="dg-display-toggle" icon="horizontal-distribution" text="Fit columns" aria-label="Fit columns" active={widthPreset?.mode === "fit"} aria-pressed={widthPreset?.mode === "fit"} onClick={() => toggleWidthPreset("fit")} title={widthPreset?.mode === "fit" ? "Undo Fit columns and restore your widths from before Fit / Compact" : "Fit headers and loaded row samples (maximum 420px). Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
+      <span className="dg-toolbar-separator" aria-hidden="true" />
       <Button small minimal className="dg-display-toggle dg-compact-toggle" icon="horizontal-inbetween" text="Compact" aria-label="Compact" active={widthPreset?.mode === "compact"} aria-pressed={widthPreset?.mode === "compact"} onClick={() => toggleWidthPreset("compact")} title={widthPreset?.mode === "compact" ? "Undo Compact and restore your widths from before Fit / Compact" : "Use compact column widths. Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
     </div>
     <div className="dg-display-group" role="group" aria-label="Text layout">
