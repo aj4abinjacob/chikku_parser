@@ -129,6 +129,7 @@ pub fn spawn_window(app: &AppHandle, files: Option<Vec<String>>) -> AppResult<St
         if let tauri::WindowEvent::Destroyed = ev {
             let dbs: tauri::State<'_, DbState> = app_handle.state();
             dbs.close_for(&lbl);
+            app_handle.state::<crate::table_search::TableSearchState>().close_for(&lbl);
         }
     });
 
@@ -175,6 +176,7 @@ fn spawn_overview_window(
         if let tauri::WindowEvent::Destroyed = event {
             let dbs: tauri::State<'_, DbState> = app_handle.state();
             dbs.close_for(&closed_label);
+            app_handle.state::<crate::table_search::TableSearchState>().close_for(&closed_label);
             let pending: tauri::State<'_, PendingOverviewContexts> = app_handle.state();
             pending.take(&closed_label);
         }

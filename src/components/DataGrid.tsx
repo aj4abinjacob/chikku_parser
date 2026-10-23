@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { Button, ButtonGroup, Classes, Dialog, Icon } from "@blueprintjs/core";
 import { Popover2 } from "@blueprintjs/popover2";
 import { SoftSelect } from "./SoftSelect";
+import { TableSearchDialog } from "./TableSearchDialog";
+import { tableSearchContextKey, TableSearchScope } from "../utils/tableSearch";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SortColumn, PivotFlatRow, PivotGroupColumn, PivotGroupSortMode, PivotAggFunction, ColumnStats, ColumnStatsUniqueValue, ColOpStep, ColOpType, UndoStrategy, QcSession, INTERNAL_ROW_ID_VALUE, LinkPreviewMetadata } from "../types";
 import { getEnabledLinkPreviewTarget } from "../utils/linkPreview";
@@ -124,6 +126,7 @@ interface DataGridProps {
   onClearFilters?: () => void;
   onShowColumns?: () => void;
   linkPreviewsEnabled?: boolean;
+  searchScope?: TableSearchScope;
 }
 
 export function DataGrid({
@@ -173,6 +176,7 @@ export function DataGrid({
   onClearFilters,
   onShowColumns,
   linkPreviewsEnabled = true,
+  searchScope,
 }: DataGridProps): React.ReactElement {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<{ row: number; col: string } | null>(null);
@@ -182,6 +186,25 @@ export function DataGrid({
   const [activeCell, setActiveCell] = useState<{ row: number; col: string } | null>(null);
   const [inspectedCell, setInspectedCell] = useState<{ row: number; column: string; text: string; kind: string } | null>(null);
   const [inspectorCopyStatus, setInspectorCopyStatus] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchContextKey = tableSearchContextKey(searchScope, columns, resetKey, !!pivotMode);
+  useEffect(() => { setSearchOpen(false); }, [searchContextKey]);
+  useEffect(() => {
+    const handleFind = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f" || event.altKey || event.defaultPrevented) return;
+      if (searchOpen) {
+        event.preventDefault();
+        document.getElementById("dg-search-term")?.focus();
+        return;
+      }
+      if (!searchScope || pivotMode || !columns.length || document.querySelector(".bp4-dialog")) return;
+      if ((event.target as HTMLElement)?.closest("input, textarea, select, [contenteditable=true]")) return;
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener("keydown", handleFind);
+    return () => document.removeEventListener("keydown", handleFind);
+  }, [searchOpen, searchScope, pivotMode, columns.length]);
 
   // ── Cell tooltip state ──
   const [tooltip, setTooltip] = useState<{
@@ -1402,6 +1425,7 @@ export function DataGrid({
         <Button small minimal className="dg-display-toggle dg-compact-toggle" icon="horizontal-inbetween" text="Compact" active={widthPreset?.mode === "compact"} aria-pressed={widthPreset?.mode === "compact"} onClick={() => toggleWidthPreset("compact")} title={widthPreset?.mode === "compact" ? "Undo Compact and restore your widths from before Fit / Compact" : "Use compact column widths. Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
         <Button small minimal className="dg-display-toggle dg-wrap-toggle" icon="new-text-box" text="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title={wrapText ? "Turn wrapping off and return to single-line cells" : "Show up to three lines per cell. Click again for single-line cells"} />
         <Button small minimal className="dg-display-toggle" icon="eye-open" text="Inspect value" active={inspectedCell !== null} aria-expanded={inspectedCell !== null} aria-haspopup="dialog" disabled={!activeCell} onClick={() => inspectedCell ? setInspectedCell(null) : inspectCell(activeCell)} title={inspectedCell ? "Close full cell value" : "Open the selected cell's full value (Enter or double-click)"} />
+        <Button small minimal className="dg-display-toggle" icon="search" text="Search" active={searchOpen} aria-expanded={searchOpen} aria-haspopup="dialog" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => setSearchOpen(open => !open)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />
         <span className="dg-selection-hint" aria-live="polite" title={activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell, then press Enter or double-click to inspect its full value"}>
           {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell to inspect"}
         </span>
@@ -1919,6 +1943,7 @@ export function DataGrid({
           />
         )}
       </div>
+      {searchOpen && searchScope && !pivotMode && <TableSearchDialog key={searchContextKey} scope={searchScope} columns={columns} filtersActive={filtersActive} onClose={() => setSearchOpen(false)} />}
       <Dialog
         isOpen={inspectedCell !== null}
         onClose={() => setInspectedCell(null)}

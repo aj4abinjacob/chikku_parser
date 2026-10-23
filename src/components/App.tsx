@@ -3208,6 +3208,7 @@ export function App(): React.ReactElement {
                     onReorderColumns={pivotActive ? undefined : reorderVisibleColumns}
                     resetKey={resetKey}
                     viewContextKey={activeTable}
+                    searchScope={activeTable && activeLoadedTable ? { tableName: activeTable, displayName: getDisplayFileName(activeLoadedTable), filters: viewState.filters, dataVersion, schemaVersion } : undefined}
                     pivotMode={pivotActive}
                     pivotFlatRows={pivotActive ? pivotFlatRows : undefined}
                     pivotGroupColumns={pivotActive ? viewState.pivotConfig?.groupColumns : undefined}

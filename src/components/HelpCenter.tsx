@@ -89,7 +89,7 @@ const HELP_TOPICS: HelpTopic[] = [
     category: "Tabular data",
     summary: "Navigate large datasets, select cells, inspect columns, sort, and group.",
     icon: "panel-table",
-    keywords: ["grid", "columns", "copy", "stats", "sort", "group", "resize", "reorder", "wrap", "fit", "inspect", "raw value", "url", "link", "live preview"],
+    keywords: ["grid", "columns", "copy", "stats", "sort", "group", "resize", "reorder", "wrap", "fit", "inspect", "raw value", "search", "find", "url", "link", "live preview"],
     sections: [
       {
         title: "Grid basics",
@@ -97,10 +97,14 @@ const HELP_TOPICS: HelpTopic[] = [
           "Scroll through large files without loading every row into the interface at once.",
           "Click and drag to select cells, then use Cmd/Ctrl+C to copy the selection as tab-separated text.",
           "Use the sort button in a column header to sort. Shift-click the button to add another sort level.",
-          "Drag column headers to reorder them, or drag a header edge to resize it. Fit columns sizes headers and loaded row samples, with a limit for long text. Compact restores narrow widths. Double-click a header edge to fit that column or restore its compact width.",
-          "Select Wrap text above the grid for up to three lines per cell. Use arrow keys to move the selected cell, and Shift+arrow keys to select a range.",
+          "Drag column headers to reorder them, or drag a header edge to resize it. Fit columns sizes headers and loaded row samples, with a limit for long text. Compact applies narrow widths. Click the active preset again to restore your previous widths; switching presets keeps the same original widths. Double-click a header edge to fit that column or restore its previous width.",
+          "Select Wrap text above the grid for up to three lines per cell; select it again to return to one line. Use arrow keys to move the selected cell, and Shift+arrow keys to select a range.",
           "Select a cell and choose Inspect value, press Enter, or double-click the cell to read and copy its complete raw value. The inspector shows the full column name, row number, and value type; nulls and empty strings are labeled separately.",
         ],
+      },
+      {
+        title: "Search table values",
+        body: "Select the magnifier labeled Search or press Cmd/Ctrl+F while browsing a flat table, then submit text to search the current filters and visible columns. Choose a specific column to narrow the work. Matching is case-insensitive and treats symbols such as % and _ literally. Results show up to 100 matching rows with a short preview of the first matching column per row. Match numbers identify search results, independent of the grid's row order. Copy preview copies the displayed excerpt. Refine the text if more matches are available. Cancel or close the search to stop it; searches also stop after 15 seconds. Broad searches of large text columns can take time.",
       },
       {
         title: "Columns sidebar",

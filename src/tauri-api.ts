@@ -10,7 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { recordSelfWrite } from "./utils/fileWatch";
-import type { AppUpdateInfo, DbApi, FileStat, LinkPreviewMetadata, OverviewWindowContext, UpdateDownloadEvent } from "./types";
+import type { AppUpdateInfo, DbApi, FileStat, LinkPreviewMetadata, OverviewWindowContext, TableSearchResult, UpdateDownloadEvent } from "./types";
 
 interface RegexPattern {
   id: string;
@@ -69,6 +69,10 @@ function installTauriApi() {
       invoke("get_excel_sheets", { filePath }),
 
     query: (sql: string) => invoke("query", { sql }),
+
+    searchTable: (request) => invoke<TableSearchResult>("search_table", { request }),
+
+    cancelTableSearch: (requestId) => invoke<void>("cancel_table_search", { requestId }),
 
     exec: (sql: string) => invoke("exec", { sql }),
 

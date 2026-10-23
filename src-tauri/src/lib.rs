@@ -6,6 +6,7 @@ mod excel;
 mod link_preview;
 mod menu;
 mod patterns;
+mod table_search;
 mod window_mgr;
 
 use app_updates::*;
@@ -15,6 +16,7 @@ use link_preview::*;
 use menu::{sync_link_previews_enabled, MenuState};
 use parking_lot::Mutex;
 use patterns::PatternState;
+use table_search::{cancel_table_search, search_table, TableSearchState};
 use std::collections::HashSet;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Window};
@@ -75,6 +77,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DbState::default())
+        .manage(TableSearchState::default())
         .manage(UpdateState::default())
         .manage(PatternState::default())
         .manage(PendingFiles::default())
@@ -84,6 +87,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_file,
             query,
+            search_table,
+            cancel_table_search,
             exec,
             describe,
             tables,

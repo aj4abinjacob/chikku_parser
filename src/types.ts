@@ -9,6 +9,8 @@ export interface DbApi {
   loadFile: (filePath: string, tableName: string, options?: ImportOptions) => Promise<any>;
   getExcelSheets: (filePath: string) => Promise<SheetInfo[]>;
   query: (sql: string) => Promise<any[]>;
+  searchTable: (request: TableSearchRequest) => Promise<TableSearchResult>;
+  cancelTableSearch: (requestId: number) => Promise<void>;
   exec: (sql: string) => Promise<boolean>;
   describe: (tableName: string) => Promise<any[]>;
   tables: () => Promise<any[]>;
@@ -56,6 +58,28 @@ export interface DbApi {
   releaseUpdateNotice: (version: string) => Promise<boolean>;
   installUpdate: (onProgress: (event: UpdateDownloadEvent) => void) => Promise<void>;
   restartApp: () => Promise<void>;
+}
+
+export interface TableSearchRequest {
+  requestId: number;
+  tableName: string;
+  columns: string[];
+  term: string;
+  filterSql: string;
+}
+
+export interface TableSearchMatch {
+  column: string;
+  preview: string;
+  truncatedStart: boolean;
+  truncatedEnd: boolean;
+}
+
+export interface TableSearchResult {
+  status: "complete" | "cancelled" | "timedOut" | "busy";
+  matches: TableSearchMatch[];
+  hasMore: boolean;
+  limit: number;
 }
 
 export interface FileStat {
