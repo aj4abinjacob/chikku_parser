@@ -7,7 +7,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { SortColumn, PivotFlatRow, PivotGroupColumn, PivotGroupSortMode, PivotAggFunction, ColumnStats, ColumnStatsUniqueValue, ColOpStep, ColOpType, UndoStrategy, QcSession, INTERNAL_ROW_ID_VALUE, LinkPreviewMetadata } from "../types";
 import { getEnabledLinkPreviewTarget } from "../utils/linkPreview";
 import { buildCellRange, cellKey, getSelectionText } from "../utils/gridSelection";
-import { COMPACT_COLUMN_WIDTH, fittedColumnWidth, gridEmptyState, initialColumnWidth, moveGridCell, rawCellValue } from "../utils/gridUX";
+import { COMPACT_COLUMN_WIDTH, ColumnWidthPreset, ColumnWidthPresetState, fittedColumnWidth, gridEmptyState, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnWidthPreset } from "../utils/gridUX";
 
 const TOOLTIP_DELAY = 600; // ms before tooltip appears
 
@@ -85,6 +85,7 @@ interface DataGridProps {
   onSort: (column: string, addLevel: boolean) => void;
   onReorderColumns?: (newOrder: string[]) => void;
   resetKey: number;
+  viewContextKey?: string | null;
   pivotMode?: boolean;
   pivotFlatRows?: PivotFlatRow[];
   pivotGroupColumns?: PivotGroupColumn[];
@@ -134,6 +135,7 @@ export function DataGrid({
   onSort,
   onReorderColumns,
   resetKey,
+  viewContextKey,
   pivotMode,
   pivotFlatRows,
   pivotGroupColumns,
@@ -500,10 +502,34 @@ export function DataGrid({
 
   // ── Column resize state ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [widthPreset, setWidthPreset] = useState<ColumnWidthPresetState | null>(null);
+  const [animatingWidths, setAnimatingWidths] = useState(false);
+  const widthAnimationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A single-column fit restores its actual previous width on the second click.
+  const autoFittedCols = useRef<Map<string, number>>(new Map());
   const isDragging = useRef(false);
   const dragColRef = useRef<string | null>(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
+
+  const stopWidthAnimation = useCallback(() => {
+    if (widthAnimationTimer.current) clearTimeout(widthAnimationTimer.current);
+    widthAnimationTimer.current = null;
+    setAnimatingWidths(false);
+  }, []);
+
+  const animateWidths = useCallback(() => {
+    if (widthAnimationTimer.current) clearTimeout(widthAnimationTimer.current);
+    setAnimatingWidths(true);
+    widthAnimationTimer.current = setTimeout(() => {
+      widthAnimationTimer.current = null;
+      setAnimatingWidths(false);
+    }, 200);
+  }, []);
+
+  useEffect(() => () => {
+    if (widthAnimationTimer.current) clearTimeout(widthAnimationTimer.current);
+  }, []);
 
   // ── Header drag-reorder state ──
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
@@ -539,6 +565,14 @@ export function DataGrid({
 
   // Reset range tracking when columns change so ensureRange re-fires after schema update
   const columnsKey = JSON.stringify(columns);
+  // Sorting/filtering can reset the row range without changing the display widths.
+  // A restored snapshot must never cross a table, schema, order, font, or pivot change.
+  useEffect(() => {
+    setWidthPreset(null);
+    autoFittedCols.current.clear();
+    stopWidthAnimation();
+  }, [columnsKey, pivotMode, viewContextKey, tableFontSize, stopWidthAnimation]);
+
   useEffect(() => {
     rangeRef.current = null;
   }, [columnsKey]);
@@ -613,6 +647,9 @@ export function DataGrid({
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current || !dragColRef.current) return;
       const delta = e.clientX - dragStartX.current;
+      if (delta === 0) return;
+      setWidthPreset(null);
+      autoFittedCols.current.clear();
       const newWidth = Math.max(MIN_COLUMN_WIDTH, dragStartWidth.current + delta);
       setColumnWidths((prev) => ({
         ...prev,
@@ -723,6 +760,8 @@ export function DataGrid({
         if (target.position === "right") toIndex++;
         if (fromIndex === toIndex) return;
         newOrder.splice(toIndex, 0, fromCol);
+        setWidthPreset(null);
+        autoFittedCols.current.clear();
         onReorderColumns(newOrder);
       };
 
@@ -744,6 +783,7 @@ export function DataGrid({
     (e: React.MouseEvent, col: string) => {
       e.preventDefault();
       e.stopPropagation();
+      stopWidthAnimation();
       isDragging.current = true;
       dragColRef.current = col;
       dragStartX.current = e.clientX;
@@ -751,13 +791,11 @@ export function DataGrid({
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     },
-    [columnWidths]
+    [columnWidths, stopWidthAnimation]
   );
 
   // Canvas context for text measurement (reused across calls)
   const measureCtx = useRef<CanvasRenderingContext2D | null>(null);
-  // Track which columns are currently auto-fitted (double-click toggles)
-  const autoFittedCols = useRef<Set<string>>(new Set());
 
   const measureColumn = useCallback(
     (col: string): number => {
@@ -805,27 +843,32 @@ export function DataGrid({
     (e: React.MouseEvent, col: string) => {
       e.preventDefault();
       e.stopPropagation();
-      if (autoFittedCols.current.has(col)) {
+      setWidthPreset(null);
+      animateWidths();
+      const previousWidth = autoFittedCols.current.get(col);
+      if (previousWidth !== undefined) {
         autoFittedCols.current.delete(col);
-        setColumnWidths((prev) => ({ ...prev, [col]: DEFAULT_COLUMN_WIDTH }));
+        setColumnWidths((prev) => ({ ...prev, [col]: previousWidth }));
         return;
       }
       const fitWidth = measureColumn(col);
-      autoFittedCols.current.add(col);
+      autoFittedCols.current.set(col, columnWidths[col] ?? DEFAULT_COLUMN_WIDTH);
       setColumnWidths((prev) => ({ ...prev, [col]: fitWidth }));
     },
-    [measureColumn]
+    [animateWidths, columnWidths, measureColumn]
   );
 
-  const fitColumns = () => {
-    const widths = Object.fromEntries(selectionColumns.map(col => [col, measureColumn(col)]));
-    autoFittedCols.current = new Set(selectionColumns);
-    setColumnWidths(prev => ({ ...prev, ...widths }));
-  };
-
-  const compactColumns = () => {
+  const toggleWidthPreset = (mode: ColumnWidthPreset) => {
+    // Undo needs no measurement; fitting only samples rows already in memory.
+    const widths = widthPreset?.mode === mode ? {} : Object.fromEntries(selectionColumns.map(col => [
+      col,
+      mode === "fit" ? measureColumn(col) : col === PIVOT_GROUP_COL_KEY ? PIVOT_GROUP_COL_WIDTH : DEFAULT_COLUMN_WIDTH,
+    ]));
+    const next = toggleColumnWidthPreset(columnWidths, widthPreset, mode, widths);
     autoFittedCols.current.clear();
-    setColumnWidths(Object.fromEntries(selectionColumns.map(col => [col, col === PIVOT_GROUP_COL_KEY ? PIVOT_GROUP_COL_WIDTH : DEFAULT_COLUMN_WIDTH])));
+    animateWidths();
+    setColumnWidths(next.widths);
+    setWidthPreset(next.preset);
   };
 
   const handleHeaderStatsClick = useCallback(
@@ -1341,7 +1384,7 @@ export function DataGrid({
 
   return (
     <div
-      className={`data-grid-container${wrapText ? " dg-wrap-text" : ""}`}
+      className={`data-grid-container${wrapText ? " dg-wrap-text" : ""}${animatingWidths ? " dg-animate-widths" : ""}`}
       ref={containerRef}
       tabIndex={0}
       role="region"
@@ -1355,17 +1398,17 @@ export function DataGrid({
       style={{ "--table-font-size": `${tableFontSize}px` } as React.CSSProperties}
     >
       <div className="dg-view-toolbar" role="toolbar" aria-label="Table display">
-        <Button small minimal icon="horizontal-distribution" text="Fit columns" onClick={fitColumns} title="Fit headers and loaded row samples (maximum 420px per column)" disabled={!selectionColumns.length} />
-        <Button small minimal text="Compact" onClick={compactColumns} title="Restore compact column widths" disabled={!selectionColumns.length} />
-        <Button small minimal icon="new-text-box" text="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title="Show up to three lines per cell" />
-        <Button small minimal icon="search" text="Inspect value" disabled={!activeCell} onClick={() => inspectCell(activeCell)} title="Inspect selected cell (Enter or double-click)" />
+        <Button small minimal className="dg-display-toggle" icon="horizontal-distribution" text="Fit columns" active={widthPreset?.mode === "fit"} aria-pressed={widthPreset?.mode === "fit"} onClick={() => toggleWidthPreset("fit")} title={widthPreset?.mode === "fit" ? "Undo Fit columns and restore your widths from before Fit / Compact" : "Fit headers and loaded row samples (maximum 420px). Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
+        <Button small minimal className="dg-display-toggle dg-compact-toggle" icon="horizontal-inbetween" text="Compact" active={widthPreset?.mode === "compact"} aria-pressed={widthPreset?.mode === "compact"} onClick={() => toggleWidthPreset("compact")} title={widthPreset?.mode === "compact" ? "Undo Compact and restore your widths from before Fit / Compact" : "Use compact column widths. Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
+        <Button small minimal className="dg-display-toggle dg-wrap-toggle" icon="new-text-box" text="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title={wrapText ? "Turn wrapping off and return to single-line cells" : "Show up to three lines per cell. Click again for single-line cells"} />
+        <Button small minimal className="dg-display-toggle" icon="eye-open" text="Inspect value" active={inspectedCell !== null} aria-expanded={inspectedCell !== null} aria-haspopup="dialog" disabled={!activeCell} onClick={() => inspectedCell ? setInspectedCell(null) : inspectCell(activeCell)} title={inspectedCell ? "Close full cell value" : "Open the selected cell's full value (Enter or double-click)"} />
         <span className="dg-selection-hint" aria-live="polite" title={activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell, then press Enter or double-click to inspect its full value"}>
           {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell to inspect"}
         </span>
       </div>
       <div className="data-grid-body">
         <div className="data-grid-scroll" ref={scrollRef}>
-          <div style={{ width: totalWidth, minWidth: "100%" }}>
+          <div className="dg-width-canvas" style={{ width: totalWidth, minWidth: "100%" }}>
           {/* Sticky header */}
           <div className="dg-header">
             {pivotMode ? (
@@ -1880,7 +1923,7 @@ export function DataGrid({
         isOpen={inspectedCell !== null}
         onClose={() => setInspectedCell(null)}
         title="Full cell value"
-        icon="search"
+        icon="eye-open"
         className="dg-value-dialog"
         canOutsideClickClose
       >

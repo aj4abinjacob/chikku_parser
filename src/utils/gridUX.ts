@@ -3,6 +3,26 @@ import { GridCell } from "./gridSelection";
 export const COMPACT_COLUMN_WIDTH = 150;
 export const MAX_FITTED_COLUMN_WIDTH = 420;
 
+export type ColumnWidthPreset = "fit" | "compact";
+export interface ColumnWidthPresetState {
+  mode: ColumnWidthPreset;
+  previousWidths: Record<string, number>;
+}
+
+/** Presets share one baseline, so switching modes never replaces the user's widths. */
+export function toggleColumnWidthPreset(
+  widths: Record<string, number>,
+  preset: ColumnWidthPresetState | null,
+  mode: ColumnWidthPreset,
+  presetWidths: Record<string, number>,
+): { widths: Record<string, number>; preset: ColumnWidthPresetState | null } {
+  if (preset?.mode === mode) return { widths: { ...preset.previousWidths }, preset: null };
+  return {
+    widths: { ...widths, ...presetWidths },
+    preset: { mode, previousWidths: { ...(preset?.previousWidths ?? widths) } },
+  };
+}
+
 /** Leave room for header controls, while keeping a wide schema navigable. */
 export function initialColumnWidth(column: string, fontSize: number): number {
   return Math.min(340, Math.max(COMPACT_COLUMN_WIDTH, Math.ceil(column.length * fontSize * 0.62 + 72)));

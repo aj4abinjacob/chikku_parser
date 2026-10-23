@@ -3207,6 +3207,7 @@ export function App(): React.ReactElement {
                     onSort={handleSort}
                     onReorderColumns={pivotActive ? undefined : reorderVisibleColumns}
                     resetKey={resetKey}
+                    viewContextKey={activeTable}
                     pivotMode={pivotActive}
                     pivotFlatRows={pivotActive ? pivotFlatRows : undefined}
                     pivotGroupColumns={pivotActive ? viewState.pivotConfig?.groupColumns : undefined}
