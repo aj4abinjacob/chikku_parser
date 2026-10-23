@@ -186,7 +186,9 @@ fn search_sql(request: &TableSearchRequest) -> String {
     }
     let scope = if request.filter_sql.is_empty() { String::new() } else { format!("({}) AND ", request.filter_sql) };
     // LIMIT is enforced natively, independent of renderer input. No count, ordering, rank or OFFSET.
-    format!("SELECT to_json(CASE {} END) FROM {} WHERE {scope}({}) LIMIT {}", cases.join(" "), identifier(&request.table_name), predicates.join(" OR "), RESULT_LIMIT + 1)
+    // Core struct/scalar functions only: JSON functions would autoload an extension, which
+    // the signed macOS app cannot load under hardened-runtime library validation.
+    format!("SELECT matched_cell.\"column\", matched_cell.preview, matched_cell.truncatedStart, matched_cell.truncatedEnd FROM (SELECT CASE {} END AS matched_cell FROM {} WHERE {scope}({}) LIMIT {}) AS search_matches", cases.join(" "), identifier(&request.table_name), predicates.join(" OR "), RESULT_LIMIT + 1)
 }
 
 fn run_search(connection: &Connection, request: &TableSearchRequest, job: &SearchJob) -> AppResult<TableSearchResult> {
@@ -201,9 +203,12 @@ fn run_search(connection: &Connection, request: &TableSearchRequest, job: &Searc
     let mut matches = Vec::new();
     while let Some(row) = rows.next()? {
         if let Some(status) = job.stopped() { return Ok(TableSearchResult::stopped(status)); }
-        let json: String = row.get(0)?;
-        let cell: SearchMatch = serde_json::from_str(&json)?;
-        matches.push(cell);
+        matches.push(SearchMatch {
+            column: row.get(0)?,
+            preview: row.get(1)?,
+            truncated_start: row.get(2)?,
+            truncated_end: row.get(3)?,
+        });
         if matches.len() > RESULT_LIMIT { break; }
     }
     let has_more = matches.len() > RESULT_LIMIT;
@@ -285,6 +290,24 @@ mod tests {
         assert_eq!(result.matches[0].preview, "100%_test");
         let sql = search_sql(&request).to_uppercase();
         assert!(!sql.contains("COUNT(") && !sql.contains("ORDER BY") && !sql.contains("OFFSET") && !sql.contains("ROWID"));
+    }
+
+    #[test]
+    fn search_uses_core_functions_without_extension_autoloading() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; CREATE TABLE data AS SELECT repeat('x', 2000) || 'Don''t_100% NEEDLE' AS message FROM range(101)").unwrap();
+        let request = request("don't_100% needle");
+        let sql = search_sql(&request).to_uppercase();
+        assert!(!sql.contains("TO_JSON(") && !sql.contains("JSON_"));
+        assert!(sql.contains("LIMIT 101"));
+        let result = search(&connection, &request);
+        assert_eq!(result.matches.len(), RESULT_LIMIT);
+        assert!(result.has_more);
+        assert_eq!(result.matches[0].column, "message");
+        assert!(result.matches[0].preview.contains("Don't_100% NEEDLE"));
+        assert!(result.matches[0].truncated_start);
+        assert!(!result.matches[0].truncated_end);
+        assert!(result.matches[0].preview.chars().count() <= PREVIEW_CHARS);
     }
 
     #[test]
