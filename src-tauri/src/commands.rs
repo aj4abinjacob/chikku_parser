@@ -416,6 +416,54 @@ pub fn file_stat(file_path: String) -> AppResult<FileStat> {
 }
 
 #[tauri::command]
+pub fn reveal_in_folder(file_path: String) -> AppResult<bool> {
+    let path = PathBuf::from(file_path);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    if !std::fs::metadata(&path)?.is_file() {
+        return Err(AppError::msg("The path does not refer to a file"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("/usr/bin/open")
+            .arg("-R")
+            .arg(&path)
+            .output()?;
+        if !output.status.success() {
+            return Err(AppError::msg(format!(
+                "Could not open Finder: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        // Explorer parses comma-separated arguments, so always quote the path.
+        std::process::Command::new("explorer.exe")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn()?;
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let parent = path
+            .parent()
+            .ok_or_else(|| AppError::msg("The file has no parent folder"))?;
+        open::that_detached(parent)
+            .map_err(|error| AppError::msg(format!("Could not open the folder: {error}")))?;
+    }
+
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn allow_pdf_asset(app: AppHandle, file_path: String) -> AppResult<String> {
     let path = validated_pdf_path(&file_path)?;
     app.asset_protocol_scope().allow_file(&path)?;

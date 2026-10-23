@@ -53,9 +53,12 @@ type FileListIcon = {
 };
 
 const FILE_CONTEXT_MENU_WIDTH = 168;
-const FILE_CONTEXT_MENU_HEIGHT = 36;
+const FILE_CONTEXT_MENU_HEIGHT = 66;
 const FILE_CONTEXT_MENU_MARGIN = 8;
 const FILE_PATH_HOVER_DELAY = 700;
+const REVEAL_FILE_LABEL = typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+  ? "Reveal in Finder"
+  : "Reveal in Folder";
 
 function getFileExtension(filePath: string): string {
   return filePath.split(".").pop()?.toLowerCase() || "";
@@ -213,6 +216,7 @@ export function Sidebar({
   const [columnSearch, setColumnSearch] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
+  const [fileRevealError, setFileRevealError] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<"columns" | "overview">("columns");
   const sidebarRef = React.useRef<HTMLDivElement>(null);
   const fileContextMenuRef = React.useRef<HTMLDivElement>(null);
@@ -315,6 +319,18 @@ export function Sidebar({
       console.warn("Failed to copy file path:", err);
     } finally {
       setFileContextMenu(null);
+    }
+  };
+
+  const revealContextFile = async () => {
+    if (!fileContextMenu || fileContextMenu.table.filePath.startsWith("(")) return;
+
+    const { filePath } = fileContextMenu.table;
+    setFileContextMenu(null);
+    try {
+      await window.api.revealInFolder(filePath);
+    } catch (err) {
+      setFileRevealError(String(err));
     }
   };
 
@@ -1145,11 +1161,13 @@ export function Sidebar({
         <div
           ref={fileContextMenuRef}
           className="file-context-menu"
+          role="menu"
           style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
           <button
             type="button"
+            role="menuitem"
             className="file-context-menu-item"
             disabled={fileContextMenu.table.filePath.startsWith("(")}
             title={fileContextMenu.table.filePath.startsWith("(") ? "No file path available" : "Copy full file path"}
@@ -1160,8 +1178,32 @@ export function Sidebar({
             <Icon icon="path" size={13} />
             <span>Copy Full Path</span>
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="file-context-menu-item"
+            disabled={fileContextMenu.table.filePath.startsWith("(")}
+            title={fileContextMenu.table.filePath.startsWith("(") ? "No file path available" : REVEAL_FILE_LABEL}
+            onClick={() => {
+              void revealContextFile();
+            }}
+          >
+            <Icon icon="folder-open" size={13} />
+            <span>{REVEAL_FILE_LABEL}</span>
+          </button>
         </div>
       )}
+
+      <Alert
+        isOpen={fileRevealError !== null}
+        onConfirm={() => setFileRevealError(null)}
+        confirmButtonText="OK"
+        intent={Intent.WARNING}
+        icon="folder-open"
+      >
+        <p>Could not reveal the file.</p>
+        <p>{fileRevealError}</p>
+      </Alert>
 
       <Alert
         isOpen={deleteTarget !== null}

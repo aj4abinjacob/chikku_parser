@@ -104,6 +104,7 @@ pub fn run() {
             write_binary_file,
             file_exists,
             file_stat,
+            reveal_in_folder,
             allow_pdf_asset,
             open_pdf_externally,
             open_new_window,

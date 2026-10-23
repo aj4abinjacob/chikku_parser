@@ -34,6 +34,7 @@ export interface DbApi {
   writeBinaryFile: (filePath: string, contents: Uint8Array) => Promise<boolean>;
   fileExists: (filePath: string) => Promise<boolean>;
   fileStat: (filePath: string) => Promise<FileStat>;
+  revealInFolder: (filePath: string) => Promise<boolean>;
   allowPdfAsset: (filePath: string) => Promise<string>;
   openPdfExternally: (filePath: string) => Promise<boolean>;
   openOverviewWindow: (tableName: string, displayName: string) => Promise<string>;

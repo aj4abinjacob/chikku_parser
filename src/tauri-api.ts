@@ -198,6 +198,8 @@ function installTauriApi() {
 
     fileStat: (filePath: string) => invoke<FileStat>("file_stat", { filePath }),
 
+    revealInFolder: (filePath: string) => invoke<boolean>("reveal_in_folder", { filePath }),
+
     allowPdfAsset: (filePath: string) =>
       invoke<string>("allow_pdf_asset", { filePath }),
 

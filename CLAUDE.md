@@ -41,7 +41,7 @@ Follow `RELEASE.md` whenever the user asks to publish a new tag. Always bump all
 | Capabilities | `src-tauri/capabilities/default.json` |
 | App entry | `src-tauri/src/main.rs` -> `lib.rs::run()` |
 | DuckDB session map | `src-tauri/src/db.rs` (per-window, keyed by Tauri window label) |
-| Tauri commands | `src-tauri/src/commands.rs` (load_file, query, exec, describe, tables, export_file, export_excel_multi, get_excel_sheets, free_memory, pattern CRUD, JSON/text/binary read/write, file_exists, file_stat, open_new_window, close_db, take_pending_files) |
+| Tauri commands | `src-tauri/src/commands.rs` (load_file, query, exec, describe, tables, export_file, export_excel_multi, get_excel_sheets, free_memory, pattern CRUD, JSON/text/binary read/write, file_exists, file_stat, reveal_in_folder, open_new_window, close_db, take_pending_files) |
 | Excel | `src-tauri/src/excel.rs` (calamine reader -> temp CSV; rust_xlsxwriter writer) |
 | Regex patterns | `src-tauri/src/patterns.rs` (GitHub fetch with bundled fallback from `src-tauri/assets/regex-patterns.json`; user patterns in `dirs::data_dir()/chikku-parser/`) |
 | Multi-window | `src-tauri/src/window_mgr.rs` (per-window pending-files queue; spawn new window per opened file) |
@@ -92,6 +92,8 @@ Tauri 2, Rust, React 18, TypeScript 5 (strict, ES2020, CommonJS), DuckDB (in-mem
 
 ### Sidebar.tsx — Left Panel
 Tables and Operations stay available while the center section switches between Columns and Overview. Columns provides visibility/search and sort/group controls. Overview profiles the current filtered table with row/column totals, completeness, type mix, missing-value signals, and a selectable top-values chart. Operation buttons cover data operations, aggregate, pivot table, lookup merge, comparison, date conversion, and export.
+
+Right-clicking a file offers Copy Full Path and Reveal in Finder (macOS) / Reveal in Folder (Windows and Linux). Reveal selects the file in Finder or Windows Explorer; on Linux it opens the containing folder. Both actions are disabled for generated tables without a source file, and reveal failures appear in an alert.
 
 ### DataGrid.tsx — Virtualized Data Grid
 Virtual scrolling via `@tanstack/react-virtual`. Div-based layout. Dual-mode: flat (chunk cache) and pivot (tree with group/data rows). Chunk generations reject stale responses, clear stale counts/loading markers on query changes, and expose failed count/chunk/pivot queries in the grid with a retry action. Cell selection, copy (TSV), multi-sort, column resize/reorder. Group values support cell selection, range selection, keyboard copy, and hover previews; only the adjacent arrow expands/collapses a group. Selection ranges and clipboard output follow visible column order, including the dedicated Group By column, through `src/utils/gridSelection.ts`. Native text selection is disabled on grid cells (including the WebKit-prefixed rule) so clipboard copying stays cell-based. `ROW_HEIGHT = 28`.
