@@ -4260,7 +4260,38 @@ html, body, #root {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  gap: 8px;
+}
+
+.dg-display-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
   gap: 4px;
+  min-width: max-content;
+
+  // WebKit must retain each label's intrinsic width beside the separator.
+  > .bp4-button {
+    flex-shrink: 0;
+    white-space: nowrap;
+
+    > .bp4-button-text { white-space: nowrap; }
+  }
+
+  + .dg-display-group::before {
+    content: "";
+    flex: 0 0 1px;
+    height: 16px;
+    margin-right: 4px;
+    background: #d8e1e8;
+  }
+}
+
+.dg-toolbar-separator {
+  flex: 0 0 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: #d8e1e8;
 }
 
 .dg-display-overflow { display: none; }
@@ -4283,7 +4314,19 @@ html, body, #root {
   gap: 3px;
   padding: 6px;
 
-  > .bp4-button { justify-content: flex-start; }
+  .dg-display-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+
+    + .dg-display-group::before {
+      align-self: stretch;
+      height: 1px;
+      margin: 3px 0;
+    }
+
+    > .bp4-button { justify-content: flex-start; }
+  }
 }
 
 // Respond to the table's width, including an expanded sidebar, rather than the window.
@@ -16961,6 +17004,11 @@ html.dark-theme #root {
   .dg-view-toolbar {
     background: @dark-bg-1;
     border-bottom-color: @dark-border-1;
+  }
+
+  .dg-display-group + .dg-display-group::before,
+  .dg-toolbar-separator {
+    background: @dark-border-1;
   }
 
   .dg-view-settings {
