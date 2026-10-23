@@ -66,13 +66,14 @@ export interface TableSearchRequest {
   columns: string[];
   term: string;
   filterSql: string;
+  sortColumns: SortColumn[];
+  direction: "forward" | "backward";
+  cursorRow: number;
 }
 
 export interface TableSearchMatch {
-  column: string;
-  preview: string;
-  truncatedStart: boolean;
-  truncatedEnd: boolean;
+  rowIndex: number;
+  columns: string[];
 }
 
 export interface TableSearchResult {

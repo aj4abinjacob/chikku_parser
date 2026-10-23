@@ -1,15 +1,30 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button, ButtonGroup, Classes, Dialog, Icon } from "@blueprintjs/core";
 import { Popover2 } from "@blueprintjs/popover2";
 import { SoftSelect } from "./SoftSelect";
-import { TableSearchDialog } from "./TableSearchDialog";
-import { tableSearchContextKey, TableSearchScope } from "../utils/tableSearch";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { TableFindBar } from "./TableFindBar";
+import { useTableFind } from "../hooks/useTableFind";
+import { FindCell, findTextMatches, findTextRanges, tableSearchContextKey, TableSearchScope } from "../utils/tableSearch";
+import { useGridRowWindow } from "../hooks/useGridRowWindow";
 import { SortColumn, PivotFlatRow, PivotGroupColumn, PivotGroupSortMode, PivotAggFunction, ColumnStats, ColumnStatsUniqueValue, ColOpStep, ColOpType, UndoStrategy, QcSession, INTERNAL_ROW_ID_VALUE, LinkPreviewMetadata } from "../types";
 import { getEnabledLinkPreviewTarget } from "../utils/linkPreview";
 import { buildCellRange, cellKey, getSelectionText } from "../utils/gridSelection";
-import { COMPACT_COLUMN_WIDTH, ColumnWidthPreset, ColumnWidthPresetState, fittedColumnWidth, gridEmptyState, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnWidthPreset } from "../utils/gridUX";
+import { COMPACT_COLUMN_WIDTH, ColumnWidthPreset, ColumnWidthPresetState, fittedColumnWidth, gridEmptyState, gridRowNumberWidth, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnWidthPreset } from "../utils/gridUX";
+
+/** React escapes all original cell text; matching never changes values or copy data. */
+export function highlightFindText(text: string, term: string): React.ReactNode {
+  const ranges = findTextRanges(text, term);
+  if (!ranges.length) return text;
+  const parts: React.ReactNode[] = [];
+  let offset = 0;
+  for (const range of ranges) {
+    parts.push(text.slice(offset, range.start), <mark className="dg-find-mark" key={range.start}>{text.slice(range.start, range.end)}</mark>);
+    offset = range.end;
+  }
+  parts.push(text.slice(offset));
+  return parts;
+}
 
 const TOOLTIP_DELAY = 600; // ms before tooltip appears
 
@@ -187,11 +202,12 @@ export function DataGrid({
   const [inspectedCell, setInspectedCell] = useState<{ row: number; column: string; text: string; kind: string } | null>(null);
   const [inspectorCopyStatus, setInspectorCopyStatus] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const searchContextKey = tableSearchContextKey(searchScope, columns, resetKey, !!pivotMode);
+  const searchContextKey = tableSearchContextKey(searchScope, columns, resetKey, !!pivotMode) + JSON.stringify(sortColumns);
   useEffect(() => { setSearchOpen(false); }, [searchContextKey]);
   useEffect(() => {
     const handleFind = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f" || event.altKey || event.defaultPrevented) return;
+      if (document.querySelector(".bp4-dialog")) return;
       if (searchOpen) {
         event.preventDefault();
         document.getElementById("dg-search-term")?.focus();
@@ -571,17 +587,9 @@ export function DataGrid({
   const effectiveRowCount = pivotMode && pivotFlatRows ? pivotFlatRows.length : totalRows;
   const rowHeight = wrapText ? Math.ceil(tableFontSize * 1.4) * 3 + 12 : Math.max(ROW_HEIGHT, tableFontSize + 15);
 
-  // Virtualizer
-  const virtualizer = useVirtualizer({
-    count: effectiveRowCount,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => rowHeight,
-    overscan: 20,
-  });
-
-  useEffect(() => {
-    virtualizer.measure();
-  }, [rowHeight, virtualizer]);
+  // A bounded physical window keeps late rows reachable beyond browser scroll limits.
+  const rowWindowContext = JSON.stringify([viewContextKey, resetKey, !!pivotMode]);
+  const { virtualizer, windowBase, scrollToLogicalRow, virtualRows } = useGridRowWindow(effectiveRowCount, rowHeight, rowWindowContext, scrollRef);
 
   // Notify chunk cache of visible range
   const rangeRef = useRef<{ start: number; end: number } | null>(null);
@@ -615,7 +623,8 @@ export function DataGrid({
   useEffect(() => {
     const range = virtualizer.range;
     if (!range) return;
-    const { startIndex, endIndex } = range;
+    const startIndex = windowBase + range.startIndex;
+    const endIndex = windowBase + range.endIndex;
     if (
       rangeRef.current &&
       rangeRef.current.start === startIndex &&
@@ -627,17 +636,14 @@ export function DataGrid({
     ensureRange(startIndex, endIndex);
   });
 
-  // Scroll to top when resetKey changes
+  // The row-window hook resets scroll before paint when the data context changes.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = 0;
-    }
     setSelected(new Set());
     setActiveCell(null);
     setInspectedCell(null);
     anchor.current = null;
     rangeRef.current = null; // force ensureRange to re-fire
-  }, [resetKey]);
+  }, [rowWindowContext]);
 
   // Calculate column widths — preserve existing widths, only assign fixed defaults for new columns
   useEffect(() => {
@@ -655,7 +661,7 @@ export function DataGrid({
   }, [columns, pivotMode, tableFontSize]);
 
   // Total width of all columns for horizontal scroll
-  const groupColWidth = pivotMode ? (columnWidths[PIVOT_GROUP_COL_KEY] ?? PIVOT_GROUP_COL_WIDTH) : 50;
+  const groupColWidth = pivotMode ? (columnWidths[PIVOT_GROUP_COL_KEY] ?? PIVOT_GROUP_COL_WIDTH) : gridRowNumberWidth(effectiveRowCount, tableFontSize);
   // Use dataColumns (excludes grouped cols) for pivot mode width
   const displayColumns = pivotMode ? dataColumns : columns;
   const selectionColumns = useMemo(
@@ -839,7 +845,7 @@ export function DataGrid({
       const sampleRows = new Set(Array.from({ length: Math.min(100, effectiveRowCount) }, (_, index) => index));
       const range = virtualizer.range;
       if (range) {
-        for (let i = range.startIndex; i <= range.endIndex; i++) sampleRows.add(i);
+        for (let i = range.startIndex; i <= range.endIndex; i++) sampleRows.add(windowBase + i);
       }
       const sampleWidths: number[] = [];
       for (const i of sampleRows) {
@@ -859,7 +865,7 @@ export function DataGrid({
 
       return fittedColumnWidth(headerWidth, sampleWidths);
     },
-    [virtualizer, getRow, effectiveRowCount, pivotMode, pivotFlatRows, formatCellForColumn, tableFontSize]
+    [virtualizer, windowBase, getRow, effectiveRowCount, pivotMode, pivotFlatRows, formatCellForColumn, tableFontSize]
   );
 
   const handleResizeDoubleClick = useCallback(
@@ -1144,6 +1150,44 @@ export function DataGrid({
     setInspectedCell({ row: cell.row, column, ...raw, kind });
   }, [getRow, pivotMode, pivotFlatRows, qcSession, columnTypes, pivotAggLabelFor]);
 
+  // Central row navigation hook: the bounded virtual-window layer can map this
+  // logical row to a physical scroll offset without changing Find's contract.
+  const navigateToRow = useCallback((row: number) => {
+    ensureRange(row, row);
+    scrollToLogicalRow(row);
+  }, [ensureRange, scrollToLogicalRow]);
+
+  const lastRowHeight = useRef(rowHeight);
+  useLayoutEffect(() => {
+    if (lastRowHeight.current !== rowHeight && activeCell) navigateToRow(activeCell.row);
+    lastRowHeight.current = rowHeight;
+  }, [rowHeight, activeCell, navigateToRow]);
+
+  const navigateToFoundCell = useCallback((cell: FindCell) => {
+    setActiveCell(cell); setSelected(new Set([cellKey(cell.row, cell.col)])); anchor.current = cell;
+    navigateToRow(cell.row);
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    const column = displayColumns.indexOf(cell.col);
+    const left = groupColWidth + displayColumns.slice(0, column).reduce((sum, name) => sum + (columnWidths[name] ?? DEFAULT_COLUMN_WIDTH), 0);
+    const width = columnWidths[cell.col] ?? DEFAULT_COLUMN_WIDTH;
+    if (left < scroll.scrollLeft) scroll.scrollLeft = left;
+    else if (left + width > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = left + width - scroll.clientWidth;
+  }, [navigateToRow, displayColumns, groupColWidth, columnWidths]);
+
+  const find = useTableFind({ enabled: searchOpen && !pivotMode, contextKey: searchContextKey, scope: searchScope, columns, sortColumns, totalRows, onNavigate: navigateToFoundCell });
+  const closeFind = useCallback(() => { find.changeTerm(""); setSearchOpen(false); containerRef.current?.focus(); }, [find.changeTerm]);
+  useEffect(() => {
+    if (!searchOpen) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector(".bp4-dialog")) return;
+      if ((event.target as HTMLElement)?.closest("input, textarea, select, [contenteditable=true], [role=combobox]")) return;
+      event.preventDefault(); closeFind();
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [searchOpen, closeFind]);
+
   const handleGridKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // Nested controls and QC inputs retain their own keyboard behavior.
     if (event.target !== event.currentTarget || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -1162,7 +1206,7 @@ export function DataGrid({
       anchor.current = next;
       setSelected(new Set([cellKey(next.row, next.col)]));
     }
-    virtualizer.scrollToIndex(next.row, { align: "auto" });
+    navigateToRow(next.row);
     const scroll = scrollRef.current;
     if (scroll) {
       const colIndex = displayColumns.indexOf(next.col);
@@ -1209,7 +1253,6 @@ export function DataGrid({
   const emptyState = gridEmptyState({ hasError: !!queryError || queryStatus === "error", columnCount: columns.length, rowCount: effectiveRowCount, loading: queryStatus === "loading", filtersActive });
   const pivotNeedsGroups = pivotMode && (!pivotGroupColumns || pivotGroupColumns.length === 0);
 
-  const virtualRows = virtualizer.getVirtualItems();
   const maxGroupDepth = pivotGroupColumns ? pivotGroupColumns.length - 1 : 0;
   const activeStatsColumn = columnStatsPanel?.column ?? null;
   const activeQcColumn = qcSession && !qcSession.done && !pivotMode ? qcSession.columnName : null;
@@ -1418,18 +1461,19 @@ export function DataGrid({
         const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-grid-cell]");
         if (cell) inspectCell({ row: Number(cell.dataset.gridRowIndex), col: cell.dataset.gridCell! });
       }}
-      style={{ "--table-font-size": `${tableFontSize}px` } as React.CSSProperties}
+      style={{ "--table-font-size": `${tableFontSize}px`, "--grid-row-number-width": `${groupColWidth}px` } as React.CSSProperties}
     >
       <div className="dg-view-toolbar" role="toolbar" aria-label="Table display">
         <Button small minimal className="dg-display-toggle" icon="horizontal-distribution" text="Fit columns" active={widthPreset?.mode === "fit"} aria-pressed={widthPreset?.mode === "fit"} onClick={() => toggleWidthPreset("fit")} title={widthPreset?.mode === "fit" ? "Undo Fit columns and restore your widths from before Fit / Compact" : "Fit headers and loaded row samples (maximum 420px). Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
         <Button small minimal className="dg-display-toggle dg-compact-toggle" icon="horizontal-inbetween" text="Compact" active={widthPreset?.mode === "compact"} aria-pressed={widthPreset?.mode === "compact"} onClick={() => toggleWidthPreset("compact")} title={widthPreset?.mode === "compact" ? "Undo Compact and restore your widths from before Fit / Compact" : "Use compact column widths. Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
         <Button small minimal className="dg-display-toggle dg-wrap-toggle" icon="new-text-box" text="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title={wrapText ? "Turn wrapping off and return to single-line cells" : "Show up to three lines per cell. Click again for single-line cells"} />
         <Button small minimal className="dg-display-toggle" icon="eye-open" text="Inspect value" active={inspectedCell !== null} aria-expanded={inspectedCell !== null} aria-haspopup="dialog" disabled={!activeCell} onClick={() => inspectedCell ? setInspectedCell(null) : inspectCell(activeCell)} title={inspectedCell ? "Close full cell value" : "Open the selected cell's full value (Enter or double-click)"} />
-        <Button small minimal className="dg-display-toggle" icon="search" text="Search" active={searchOpen} aria-expanded={searchOpen} aria-haspopup="dialog" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => setSearchOpen(open => !open)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />
+        <Button small minimal className="dg-display-toggle" icon="search" text="Search" active={searchOpen} aria-expanded={searchOpen} aria-controls="dg-find-panel" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => searchOpen ? closeFind() : setSearchOpen(true)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />
         <span className="dg-selection-hint" aria-live="polite" title={activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell, then press Enter or double-click to inspect its full value"}>
           {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell to inspect"}
         </span>
       </div>
+      {searchOpen && searchScope && !pivotMode && <div id="dg-find-panel"><TableFindBar term={find.term} onChange={find.changeTerm} status={find.status} loading={find.loading} canNavigate={find.canNavigate} onNavigate={find.navigate} onCancel={find.cancel} onClose={closeFind} /></div>}
       <div className="data-grid-body">
         <div className="data-grid-scroll" ref={scrollRef}>
           <div className="dg-width-canvas" style={{ width: totalWidth, minWidth: "100%" }}>
@@ -1797,6 +1841,9 @@ export function DataGrid({
                     const isQcNoteCell = !!activeQcNotesColumn && col === activeQcNotesColumn;
                     const isQcEditableCell = isQcCell || isQcNoteCell;
                     const cellText = loaded && !isQcEditableCell ? formatCellForColumn(row[col], col) : loaded ? "" : "...";
+                    const matchesFind = searchOpen && loaded && findTextMatches(row[col], find.term);
+                    const currentFind = searchOpen && find.active?.row === virtualRow.index && find.active.col === col;
+
                     return (
                       <div
                         key={col}
@@ -1804,6 +1851,8 @@ export function DataGrid({
                         data-grid-row-index={virtualRow.index}
                           className={[
                             "dg-cell",
+                            matchesFind ? "dg-find-cell" : "",
+                            currentFind ? "dg-find-current" : "",
                             isQcEditableCell ? "dg-qc-cell" : "",
                             isQcNoteCell ? "dg-qc-note-cell" : "",
                             selected.has(cellKey(virtualRow.index, col))
@@ -1830,7 +1879,7 @@ export function DataGrid({
                           ? renderQcCellContent(row)
                           : isQcNoteCell && loaded
                             ? renderQcNoteCellContent(row)
-                            : <span className="dg-cell-value">{cellText}</span>}
+                            : <span className="dg-cell-value">{matchesFind ? highlightFindText(cellText, find.term) : cellText}</span>}
                       </div>
                     );
                   })}
@@ -1943,7 +1992,6 @@ export function DataGrid({
           />
         )}
       </div>
-      {searchOpen && searchScope && !pivotMode && <TableSearchDialog key={searchContextKey} scope={searchScope} columns={columns} filtersActive={filtersActive} onClose={() => setSearchOpen(false)} />}
       <Dialog
         isOpen={inspectedCell !== null}
         onClose={() => setInspectedCell(null)}

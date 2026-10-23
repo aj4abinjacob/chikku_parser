@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { COMPACT_COLUMN_WIDTH, fittedColumnWidth, gridEmptyState, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnWidthPreset } = require("../.test-dist/utils/gridUX.js");
+const { COMPACT_COLUMN_WIDTH, fittedColumnWidth, gridEmptyState, gridRowNumberWidth, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnWidthPreset } = require("../.test-dist/utils/gridUX.js");
 
 test("each width preset toggles back to the exact custom widths it replaced", () => {
   const original = { name: 235, notes: 512, hidden: 87 };
@@ -41,6 +41,17 @@ test("initial columns accommodate related long headers while staying bounded", (
   assert.ok(initialColumnWidth("author_profile_pic_hd_url", 13) > COMPACT_COLUMN_WIDTH);
   assert.ok(initialColumnWidth("author_profile_pic_hd_url", 13) > initialColumnWidth("author_profile_pic_url", 13));
   assert.equal(initialColumnWidth("x".repeat(500), 24), 340);
+});
+
+test("row-number gutters fit the final 100-million-row label at every supported font size", () => {
+  assert.equal(gridRowNumberWidth(0, 13), 50);
+  assert.equal(gridRowNumberWidth(500, 13), 50);
+  for (const fontSize of [10, 13, 18, 24]) {
+    // Monospaced digits use about 0.6em; leave room for both 12px pads and border.
+    const labelWidth = 9 * Math.max(11, Math.min(22, fontSize - 2)) * 0.6;
+    assert.ok(gridRowNumberWidth(100_000_000, fontSize) >= labelWidth + 25);
+    assert.ok(gridRowNumberWidth(100_000_000, fontSize) > gridRowNumberWidth(500, fontSize));
+  }
 });
 
 test("fitting includes headers and samples but caps long URLs and text", () => {

@@ -1,5 +1,11 @@
 export type ChunkQueryStatus = "idle" | "loading" | "ready" | "error";
 
+/** Reordering affects sorted ties only when a real rowid shadows DuckDB's key. */
+export function chunkColumnsKey(visibleColumns: string[], hasSort: boolean, schemaColumns: Iterable<string> = visibleColumns): string {
+  const orderMatters = hasSort && Array.from(schemaColumns).some(column => column.toLowerCase() === "rowid");
+  return JSON.stringify(orderMatters ? visibleColumns : [...visibleColumns].sort());
+}
+
 export interface ChunkQueryError {
   scope: "count" | "chunk";
   message: string;

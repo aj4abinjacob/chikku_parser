@@ -104,7 +104,7 @@ const HELP_TOPICS: HelpTopic[] = [
       },
       {
         title: "Search table values",
-        body: "Select the magnifier labeled Search or press Cmd/Ctrl+F while browsing a flat table, then submit text to search the current filters and visible columns. Choose a specific column to narrow the work. Matching is case-insensitive and treats symbols such as % and _ literally. Results show up to 100 matching rows with a short preview of the first matching column per row. Match numbers identify search results, independent of the grid's row order. Copy preview copies the displayed excerpt. Refine the text if more matches are available. Cancel or close the search to stop it; searches also stop after 15 seconds. Broad searches of large text columns can take time.",
+        body: "Select Search or press Cmd/Ctrl+F to open the Find bar above a flat table. Type to highlight matching text in the current filtered rows and visible columns. Matching ignores case and treats symbols such as % and _ literally. Enter or the next arrow moves forward; Shift+Enter or the previous arrow moves back. The active cell is outlined and brought into view. Escape or Close find clears the highlights. A + in the counter means more matches remain to be found. Use filters to narrow searches on very large files; Cancel search stops a running scan.",
       },
       {
         title: "Columns sidebar",

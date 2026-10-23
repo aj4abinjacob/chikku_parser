@@ -286,15 +286,25 @@ export function buildChunkQuery(
     sql += ` WHERE ${whereClause}`;
   }
 
-  if (sortColumns.length > 0) {
-    const orderParts = sortColumns.map(
-      (sc) => `${escapeIdent(sc.column)} ${sc.direction}`
-    );
-    sql += ` ORDER BY ${orderParts.join(", ")}`;
-  }
+  sql += buildGridOrderClause(sortColumns, visibleColumns, columnTypes ? [...columnTypes.keys()] : visibleColumns, tableName);
 
   sql += ` LIMIT ${chunkSize} OFFSET ${chunkIndex * chunkSize}`;
   return sql;
+}
+
+/** Shared with native Find: stable sorted ties without ranking/copying the table. */
+export function buildGridOrderClause(sortColumns: SortColumn[], visibleColumns: string[], schemaColumns: string[] = visibleColumns, sourceTable?: string): string {
+  if (!sortColumns.length) return ""; // preserve DuckDB's streaming insertion order
+  // Transport aliases can be VARCHAR casts of decimals/timetz. Resolve every
+  // ordering key against the source so Find and chunks use the same typed values.
+  const key = (column: string) => sourceTable === undefined ? escapeIdent(column) : `${escapeIdent(sourceTable)}.${escapeIdent(column)}`;
+  const parts = sortColumns.map(sort => `${key(sort.column)} ${sort.direction}`);
+  if (!schemaColumns.some(column => column.toLowerCase() === "rowid")) parts.push(`${sourceTable === undefined ? "rowid" : key("rowid")} ASC`);
+  else {
+    const sorted = new Set(sortColumns.map(sort => sort.column));
+    for (const column of visibleColumns) if (!sorted.has(column)) parts.push(`${key(column)} ASC`);
+  }
+  return ` ORDER BY ${parts.join(", ")}`;
 }
 
 export function buildTransportColumnSelect(column: string, columnType?: string): string {

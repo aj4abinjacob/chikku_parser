@@ -28,6 +28,13 @@ export function initialColumnWidth(column: string, fontSize: number): number {
   return Math.min(340, Math.max(COMPACT_COLUMN_WIDTH, Math.ceil(column.length * fontSize * 0.62 + 72)));
 }
 
+/** Include the largest row label, cell padding and border at the row-number font. */
+export function gridRowNumberWidth(totalRows: number, fontSize: number): number {
+  const digits = String(Math.max(1, Math.floor(totalRows))).length;
+  const numberFontSize = Math.max(11, Math.min(22, fontSize - 2));
+  return Math.max(50, Math.ceil(digits * numberFontSize * 0.62 + 25));
+}
+
 export function fittedColumnWidth(headerWidth: number, sampleWidths: number[]): number {
   const measuredWidth = sampleWidths.reduce((width, sample) => Math.max(width, sample + 24), headerWidth + 72);
   return Math.min(MAX_FITTED_COLUMN_WIDTH, Math.max(COMPACT_COLUMN_WIDTH, Math.ceil(measuredWidth)));

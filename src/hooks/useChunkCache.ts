@@ -7,6 +7,7 @@ import {
   applyCountSuccess,
   applyQueryFailure,
   beginQueryGeneration,
+  chunkColumnsKey,
   settleChunkRequest,
 } from "./chunkCacheState";
 
@@ -66,8 +67,9 @@ export function useChunkCache({
   const columnTypesRef = useRef(columnTypes);
   columnTypesRef.current = columnTypes;
 
-  // Stable key for visible columns — sorted so reordering doesn't trigger reset
-  const visibleColumnsKey = JSON.stringify([...viewState.visibleColumns].sort());
+  // Most reorders retain cached rows. A shadowed rowid uses visible order for
+  // sorted ties, so it must invalidate chunks along with Find's positions.
+  const visibleColumnsKey = chunkColumnsKey(viewState.visibleColumns, viewState.sortColumns.length > 0, columnTypes?.keys());
   const columnTypesKey = JSON.stringify(
     Array.from(columnTypes?.entries() ?? []).sort(([left], [right]) => left.localeCompare(right))
   );

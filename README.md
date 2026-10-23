@@ -12,7 +12,7 @@ A Tauri desktop app for viewing documents and exploring, combining, and transfor
 - **Pivot & Aggregate** — Build grouped, aggregate, pivot, lookup, and row-operation workflows
 - **Export** — Export filtered or combined results to CSV, TSV, JSON, Excel, or Parquet
 - **Cell Selection & Copy** — Select cells and copy as TSV
-- **Table Search** — Search current filters and visible columns on demand, narrow to one column, and cancel long searches; results use bounded previews
+- **Find in Table** — Highlight matching text directly in cells and move between matches with a compact Find bar
 - **Live Link Previews** — Hover public HTTPS URLs for safe metadata cards, or disable them from View → Live Link Previews
 - **In-App Help** — Searchable guidance for tabular, JSON, Markdown, PDF, multi-file, review, and export workflows
 
@@ -24,9 +24,11 @@ Use the toolbar above a table to **Filter**, **Transform → Columns / Rows / Ta
 
 Filters open in a compact workbench that grows as conditions are added. Select **Apply** beside the draft status to update the table. Drag the top edge to resize, or focus it and use **Arrow Up / Arrow Down**; **Home / End** select the smallest or largest available size. Each workbench tab remembers its manual height during the session. To reorder columns by keyboard, focus a column's drag handle and use **Arrow Up / Arrow Down**. Sort and group controls support **Shift** to add levels.
 
-**Fit columns**, **Compact**, and **Wrap text** show when they are active. Click the active control again to undo it; Fit and Compact restore the widths you had before using either preset. **Inspect value** uses an eye icon to open a selected cell's full value. **Search** uses the magnifier to find text in the current table.
+**Fit columns**, **Compact**, and **Wrap text** show when they are active. Click the active control again to undo it; Fit and Compact restore the widths you had before using either preset. **Inspect value** uses an eye icon to open a selected cell's full value. **Search** opens the compact Find bar above the grid.
 
-Open Search with its button or **Cmd/Ctrl+F** while browsing a flat table. Search runs when you submit it, with current filters and visible columns as its scope. It returns up to 100 matching rows and a short preview of the first matching column in each row. Choose one column or refine the text when more matches are available. Searches run in the database on a separate connection, support cancellation, and stop after 15 seconds. Broad searches over large text columns may still require a scan; results never require loading the whole table into the interface.
+Open Find with **Search** or **Cmd/Ctrl+F** while browsing a flat table. Type to highlight literal, case-insensitive matches in the current filters and visible columns. **Enter / Shift+Enter** or the arrows move forward and back, bringing the active matching cell into view. **Escape** closes Find and clears the highlights. A **+** in the match counter means more matches remain to be found.
+
+Large-file searches use bounded batches of cell positions, with cancellation and a 15-second timeout per scan. Navigation continues beyond the first batch without loading the whole table into the interface. Broad text searches can still take time; filters can narrow the scope.
 
 ## Tech Stack
 
