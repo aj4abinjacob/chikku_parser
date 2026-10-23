@@ -104,7 +104,7 @@ const HELP_TOPICS: HelpTopic[] = [
       },
       {
         title: "Search table values",
-        body: "Select Search or press Cmd/Ctrl+F to open the Find bar above a flat table. Type to highlight matching text in the current filtered rows and visible columns. Matching ignores case and treats symbols such as % and _ literally. Enter or the next arrow moves forward; Shift+Enter or the previous arrow moves back. The active cell is outlined and brought into view. Escape or Close find clears the highlights. A + in the counter means more matches remain to be found. Use filters to narrow searches on very large files; Cancel search stops a running scan.",
+        body: "Select Search or press Cmd/Ctrl+F to find text in the existing table toolbar. Find uses no extra row; narrow tables keep the display controls in icons or Table display options. Type to highlight matching text in the current filtered rows and visible columns. Matching ignores case and treats symbols such as % and _ literally. Enter or the next arrow moves forward; Shift+Enter or the previous arrow moves back. The active cell is outlined and brought into view. Escape or Close find clears the highlights. A + in the counter means more matches remain to be found. Use filters to narrow searches on very large files; select the spinning search icon to cancel a running scan.",
       },
       {
         title: "Columns sidebar",

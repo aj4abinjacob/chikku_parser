@@ -1181,6 +1181,8 @@ export function DataGrid({
     if (!searchOpen) return;
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || document.querySelector(".bp4-dialog")) return;
+      const displayOptions = document.querySelector<HTMLElement>(".dg-display-options-popover .dg-display-options");
+      if (displayOptions?.getClientRects().length) return;
       if ((event.target as HTMLElement)?.closest("input, textarea, select, [contenteditable=true], [role=combobox]")) return;
       event.preventDefault(); closeFind();
     };
@@ -1448,6 +1450,13 @@ export function DataGrid({
     </Popover2>
   ) : null;
 
+  const displayControls = <>
+    <Button small minimal className="dg-display-toggle" icon="horizontal-distribution" text="Fit columns" aria-label="Fit columns" active={widthPreset?.mode === "fit"} aria-pressed={widthPreset?.mode === "fit"} onClick={() => toggleWidthPreset("fit")} title={widthPreset?.mode === "fit" ? "Undo Fit columns and restore your widths from before Fit / Compact" : "Fit headers and loaded row samples (maximum 420px). Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
+    <Button small minimal className="dg-display-toggle dg-compact-toggle" icon="horizontal-inbetween" text="Compact" aria-label="Compact" active={widthPreset?.mode === "compact"} aria-pressed={widthPreset?.mode === "compact"} onClick={() => toggleWidthPreset("compact")} title={widthPreset?.mode === "compact" ? "Undo Compact and restore your widths from before Fit / Compact" : "Use compact column widths. Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
+    <Button small minimal className="dg-display-toggle dg-wrap-toggle" icon="new-text-box" text="Wrap text" aria-label="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title={wrapText ? "Turn wrapping off and return to single-line cells" : "Show up to three lines per cell. Click again for single-line cells"} />
+    <Button small minimal className="dg-display-toggle" icon="eye-open" text="Inspect value" aria-label="Inspect value" active={inspectedCell !== null} aria-expanded={inspectedCell !== null} aria-haspopup="dialog" disabled={!activeCell} onClick={() => inspectedCell ? setInspectedCell(null) : inspectCell(activeCell)} title={inspectedCell ? "Close full cell value" : "Open the selected cell's full value (Enter or double-click)"} />
+  </>;
+
   return (
     <div
       className={`data-grid-container${wrapText ? " dg-wrap-text" : ""}${animatingWidths ? " dg-animate-widths" : ""}`}
@@ -1463,17 +1472,18 @@ export function DataGrid({
       }}
       style={{ "--table-font-size": `${tableFontSize}px`, "--grid-row-number-width": `${groupColWidth}px` } as React.CSSProperties}
     >
-      <div className="dg-view-toolbar" role="toolbar" aria-label="Table display">
-        <Button small minimal className="dg-display-toggle" icon="horizontal-distribution" text="Fit columns" active={widthPreset?.mode === "fit"} aria-pressed={widthPreset?.mode === "fit"} onClick={() => toggleWidthPreset("fit")} title={widthPreset?.mode === "fit" ? "Undo Fit columns and restore your widths from before Fit / Compact" : "Fit headers and loaded row samples (maximum 420px). Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
-        <Button small minimal className="dg-display-toggle dg-compact-toggle" icon="horizontal-inbetween" text="Compact" active={widthPreset?.mode === "compact"} aria-pressed={widthPreset?.mode === "compact"} onClick={() => toggleWidthPreset("compact")} title={widthPreset?.mode === "compact" ? "Undo Compact and restore your widths from before Fit / Compact" : "Use compact column widths. Click again to restore your widths from before Fit / Compact"} disabled={!selectionColumns.length} />
-        <Button small minimal className="dg-display-toggle dg-wrap-toggle" icon="new-text-box" text="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title={wrapText ? "Turn wrapping off and return to single-line cells" : "Show up to three lines per cell. Click again for single-line cells"} />
-        <Button small minimal className="dg-display-toggle" icon="eye-open" text="Inspect value" active={inspectedCell !== null} aria-expanded={inspectedCell !== null} aria-haspopup="dialog" disabled={!activeCell} onClick={() => inspectedCell ? setInspectedCell(null) : inspectCell(activeCell)} title={inspectedCell ? "Close full cell value" : "Open the selected cell's full value (Enter or double-click)"} />
-        <Button small minimal className="dg-display-toggle" icon="search" text="Search" active={searchOpen} aria-expanded={searchOpen} aria-controls="dg-find-panel" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => searchOpen ? closeFind() : setSearchOpen(true)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />
+      <div className={`dg-view-toolbar${searchOpen ? " dg-view-toolbar-finding" : ""}`} role="toolbar" aria-label="Table display">
+        <div className="dg-display-controls">{displayControls}</div>
+        <div className="dg-display-overflow"><Popover2 placement="bottom-start" minimal usePortal={false} popoverClassName="dg-display-options-popover" content={<div className="dg-display-options" role="group" aria-label="Table display options">{displayControls}</div>}>
+          <Button small minimal icon="more" aria-label="Table display options" title="Table display options" />
+        </Popover2></div>
+        {searchOpen && searchScope && !pivotMode
+          ? <TableFindBar term={find.term} onChange={find.changeTerm} status={find.status} loading={find.loading} canNavigate={find.canNavigate} onNavigate={find.navigate} onCancel={find.cancel} onClose={closeFind} />
+          : <Button small minimal className="dg-display-toggle" icon="search" text="Search" aria-label="Search" aria-expanded={false} aria-controls="dg-find-panel" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => setSearchOpen(true)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />}
         <span className="dg-selection-hint" aria-live="polite" title={activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell, then press Enter or double-click to inspect its full value"}>
           {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell to inspect"}
         </span>
       </div>
-      {searchOpen && searchScope && !pivotMode && <div id="dg-find-panel"><TableFindBar term={find.term} onChange={find.changeTerm} status={find.status} loading={find.loading} canNavigate={find.canNavigate} onNavigate={find.navigate} onCancel={find.cancel} onClose={closeFind} /></div>}
       <div className="data-grid-body">
         <div className="data-grid-scroll" ref={scrollRef}>
           <div className="dg-width-canvas" style={{ width: totalWidth, minWidth: "100%" }}>

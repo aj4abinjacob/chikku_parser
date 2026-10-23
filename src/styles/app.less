@@ -4173,6 +4173,8 @@ html, body, #root {
 
 // ── Virtual data grid ──
 .data-grid-container {
+  container-name: data-grid;
+  container-type: inline-size;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -4244,7 +4246,7 @@ html, body, #root {
   flex: 0 0 auto;
   display: flex;
   justify-content: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
   align-items: center;
   min-height: 32px;
@@ -4252,6 +4254,64 @@ html, body, #root {
   background: #fff;
   border-bottom: 1px solid #d8e1e8;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.dg-display-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.dg-display-overflow { display: none; }
+.dg-view-toolbar-finding .dg-selection-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.dg-display-options {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+
+  > .bp4-button { justify-content: flex-start; }
+}
+
+// Respond to the table's width, including an expanded sidebar, rather than the window.
+@container data-grid (max-width: 840px) {
+  .dg-view-toolbar-finding .dg-display-controls .bp4-button-text { display: none; }
+  .dg-view-toolbar-finding .dg-display-controls .dg-display-toggle {
+    min-width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 4px;
+    > .bp4-icon { margin: 0; }
+  }
+}
+
+@container data-grid (max-width: 680px) {
+  .dg-view-toolbar .dg-display-controls .bp4-button-text { display: none; }
+  .dg-view-toolbar .dg-display-controls .dg-display-toggle {
+    min-width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 4px;
+    > .bp4-icon { margin: 0; }
+  }
+}
+
+@container data-grid (max-width: 460px) {
+  .dg-view-toolbar-finding .dg-display-controls { display: none; }
+  .dg-view-toolbar-finding .dg-display-overflow { display: block; flex: 0 0 24px; }
 }
 
 // Animate only a preset action, keeping manual resizing and row virtualization immediate.
@@ -19986,28 +20046,34 @@ html.dark-theme #root {
 .dg-find-bar {
   display: flex;
   align-items: center;
-  gap: 5px;
+  flex: 0 1 360px;
+  gap: 2px;
+  min-width: 0;
+  height: 24px;
   margin-left: auto;
-  padding: 5px 8px;
-  max-width: 540px;
-  background: #fff;
-  border-bottom: 1px solid #d8e1e8;
-  border-left: 1px solid #d8e1e8;
-  border-radius: 0 0 0 5px;
-  box-shadow: 0 2px 5px rgba(17, 20, 24, .08);
+  max-width: 380px;
 
-  input { flex: 1 1 150px; min-width: 70px; height: 28px; }
-  > .bp4-icon { flex-shrink: 0; color: #5c7080; }
-  > .bp4-button { flex-shrink: 0; }
+  > .bp4-button { flex: 0 0 24px; min-width: 24px; padding: 5px; }
 }
-.dg-find-status { flex: 0 1 auto; min-width: 58px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #5c7080; }
+.dg-find-field {
+  position: relative;
+  flex: 1 1 180px;
+  min-width: 90px;
+  max-width: 220px;
+  height: 24px;
+
+  input.bp4-input { width: 100%; min-width: 0; height: 24px; padding-left: 26px; font-size: 12px; }
+  .dg-find-field-icon { position: absolute; z-index: 1; color: #5c7080; }
+  > .bp4-icon { top: 5px; left: 6px; pointer-events: none; }
+  > .bp4-button { top: 0; left: 0; width: 24px; min-width: 24px; height: 24px; padding: 5px; }
+}
+.dg-find-status { flex: 0 1 72px; min-width: 44px; max-width: 80px; padding: 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #5c7080; }
 .dg-row .dg-find-cell { background: #fff4bb; }
 .dg-find-mark { background: #ffe16a; color: inherit; border-radius: 2px; padding: 0; }
 .dg-row .dg-find-current { background: #e1f1e5; box-shadow: inset 0 0 0 2px #238551; }
 .dg-find-current .dg-find-mark { background: #b3dfbf; }
 .bp4-dark {
-  .dg-find-bar { background: @dark-bg-2; border-color: @dark-border-1; }
-  .dg-find-status, .dg-find-bar > .bp4-icon { color: @dark-text-3; }
+  .dg-find-status, .dg-find-field .dg-find-field-icon { color: @dark-text-3; }
   .dg-row .dg-find-cell { background: #51492a; }
   .dg-find-mark { background: #8d762c; color: #fff8df; }
   .dg-row .dg-find-current { background: #254c3b; box-shadow: inset 0 0 0 2px #72ca96; }
