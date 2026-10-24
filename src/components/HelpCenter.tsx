@@ -97,7 +97,7 @@ const HELP_TOPICS: HelpTopic[] = [
           "Scroll through large files without loading every row into the interface at once.",
           "Click and drag to select cells, then use Cmd/Ctrl+C to copy the selection as tab-separated text.",
           "Use the sort button in a column header to sort. Shift-click the button to add another sort level.",
-          "Drag column headers to reorder them, or drag a header edge to resize it. Fit columns sizes headers and loaded row samples, with a limit for long text. Compact applies narrow widths. Click the active preset again to restore your previous widths; switching presets keeps the same original widths. Double-click a header edge to fit that column or restore its previous width.",
+          "Drag column headers to reorder them, or drag a header edge to resize it. Fit columns sizes headers and loaded row samples, with a limit for long text. Click Fit columns again to restore your previous widths. Double-click a header edge to fit that column or restore its previous width.",
           "Select Wrap text above the grid for up to three lines per cell; select it again to return to one line. Use arrow keys to move the selected cell, and Shift+arrow keys to select a range.",
           "Select a cell and choose Inspect value, press Enter, or double-click the cell to read and copy its complete raw value. The inspector shows the full column name, row number, and value type; nulls and empty strings are labeled separately.",
         ],

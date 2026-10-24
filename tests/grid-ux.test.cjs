@@ -1,44 +1,37 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { COMPACT_COLUMN_WIDTH, fittedColumnWidth, gridEmptyState, gridRowNumberWidth, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnWidthPreset } = require("../.test-dist/utils/gridUX.js");
+const { DEFAULT_COLUMN_WIDTH, fittedColumnWidth, gridEmptyState, gridRowNumberWidth, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnFit } = require("../.test-dist/utils/gridUX.js");
 
-test("each width preset toggles back to the exact custom widths it replaced", () => {
-  const original = { name: 235, notes: 512, hidden: 87 };
-  for (const mode of ["fit", "compact"]) {
-    const applied = toggleColumnWidthPreset(original, null, mode, { name: 150, notes: 300 });
-    assert.deepEqual(applied.widths, { name: 150, notes: 300, hidden: 87 });
-    assert.equal(applied.preset.mode, mode);
-    const undone = toggleColumnWidthPreset(applied.widths, applied.preset, mode, {});
-    assert.deepEqual(undone, { widths: original, preset: null });
-    assert.notEqual(undone.widths, original);
-  }
+test("Fit columns toggles back to exact custom widths including hidden and pivot columns", () => {
+  const original = { name: 235, notes: 512, hidden: 87, __pivot_group__: 320 };
+  const applied = toggleColumnFit(original, null, { name: 150, notes: 300, __pivot_group__: 275 });
+  assert.deepEqual(applied.widths, { name: 150, notes: 300, hidden: 87, __pivot_group__: 275 });
+  assert.ok(applied.fit);
+  const undone = toggleColumnFit(applied.widths, applied.fit, {});
+  assert.deepEqual(undone, { widths: original, fit: null });
+  assert.notEqual(undone.widths, original);
 });
 
-test("switching width presets keeps the original baseline until the active preset is undone", () => {
-  const original = { name: 240, notes: 510, __pivot_group__: 320 };
-  const fit = toggleColumnWidthPreset(original, null, "fit", { name: 310, notes: 420, __pivot_group__: 275 });
-  const compact = toggleColumnWidthPreset(fit.widths, fit.preset, "compact", { name: 150, notes: 150, __pivot_group__: 250 });
-  assert.equal(compact.preset.mode, "compact");
-  const fitAgain = toggleColumnWidthPreset(compact.widths, compact.preset, "fit", { name: 280, notes: 410 });
-  const restored = toggleColumnWidthPreset(fitAgain.widths, fitAgain.preset, "fit", {});
-  assert.deepEqual(restored, { widths: original, preset: null });
-  assert.deepEqual(original, { name: 240, notes: 510, __pivot_group__: 320 });
+test("Fit columns undo removes fitted overrides that did not exist in the baseline", () => {
+  const applied = toggleColumnFit({}, null, { name: 310, notes: 420 });
+  assert.deepEqual(toggleColumnFit(applied.widths, applied.fit, {}), { widths: {}, fit: null });
 });
 
 test("a saved width snapshot is independent of width updates and the next toggle captures new custom widths", () => {
   const original = { name: 250 };
-  const applied = toggleColumnWidthPreset(original, null, "fit", { name: 420 });
+  const applied = toggleColumnFit(original, null, { name: 420 });
   original.name = 280;
-  const undone = toggleColumnWidthPreset(applied.widths, applied.preset, "fit", {});
-  assert.deepEqual(undone, { widths: { name: 250 }, preset: null });
-  const manuallyResized = { ...undone.widths, name: 188 };
-  const next = toggleColumnWidthPreset(manuallyResized, null, "fit", { name: 300 });
-  assert.deepEqual(toggleColumnWidthPreset(next.widths, next.preset, "fit", {}), { widths: manuallyResized, preset: null });
+  const undone = toggleColumnFit(applied.widths, applied.fit, {});
+  assert.deepEqual(undone, { widths: { name: 250 }, fit: null });
+  // Manual resizing clears the active fit, so its new widths become the next baseline.
+  const manuallyResized = { ...applied.widths, name: 188 };
+  const next = toggleColumnFit(manuallyResized, null, { name: 300 });
+  assert.deepEqual(toggleColumnFit(next.widths, next.fit, {}), { widths: manuallyResized, fit: null });
 });
 
 test("initial columns accommodate related long headers while staying bounded", () => {
-  assert.equal(initialColumnWidth("id", 13), COMPACT_COLUMN_WIDTH);
-  assert.ok(initialColumnWidth("author_profile_pic_hd_url", 13) > COMPACT_COLUMN_WIDTH);
+  assert.equal(initialColumnWidth("id", 13), DEFAULT_COLUMN_WIDTH);
+  assert.ok(initialColumnWidth("author_profile_pic_hd_url", 13) > DEFAULT_COLUMN_WIDTH);
   assert.ok(initialColumnWidth("author_profile_pic_hd_url", 13) > initialColumnWidth("author_profile_pic_url", 13));
   assert.equal(initialColumnWidth("x".repeat(500), 24), 340);
 });
@@ -59,7 +52,7 @@ test("fitting includes headers and samples but caps long URLs and text", () => {
   assert.equal(fittedColumnWidth(30, [250, 40]), 274);
   assert.equal(fittedColumnWidth(30, [100000]), 420);
   assert.equal(fittedColumnWidth(100000, []), 420);
-  assert.equal(fittedColumnWidth(10, []), COMPACT_COLUMN_WIDTH);
+  assert.equal(fittedColumnWidth(10, []), DEFAULT_COLUMN_WIDTH);
 });
 
 test("keyboard movement follows visible column order and stops at dataset boundaries", () => {

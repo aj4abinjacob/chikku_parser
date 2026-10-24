@@ -4319,8 +4319,7 @@ html, body, #root {
     align-items: stretch;
     gap: 3px;
 
-    + .dg-display-group::before,
-    > .dg-toolbar-separator {
+    + .dg-display-group::before {
       align-self: stretch;
       height: 1px;
       margin: 3px 0;
@@ -4358,7 +4357,7 @@ html, body, #root {
   .dg-view-toolbar-finding .dg-display-overflow { display: block; flex: 0 0 24px; }
 }
 
-// Animate only a preset action, keeping manual resizing and row virtualization immediate.
+// Animate only a fit action, keeping manual resizing and row virtualization immediate.
 .dg-animate-widths .dg-cell,
 .dg-animate-widths .dg-width-canvas {
   transition: width 160ms ease-out;
@@ -4378,10 +4377,6 @@ html, body, #root {
     > .bp4-icon {
       transform: scale(1.12);
     }
-  }
-
-  &.dg-compact-toggle[aria-pressed="true"] > .bp4-icon {
-    transform: scaleX(0.8);
   }
 
   &.dg-wrap-toggle[aria-pressed="true"] > .bp4-icon {

@@ -1,31 +1,28 @@
 import { GridCell } from "./gridSelection";
 
-export const COMPACT_COLUMN_WIDTH = 150;
+export const DEFAULT_COLUMN_WIDTH = 150;
 export const MAX_FITTED_COLUMN_WIDTH = 420;
 
-export type ColumnWidthPreset = "fit" | "compact";
-export interface ColumnWidthPresetState {
-  mode: ColumnWidthPreset;
+export interface ColumnFitState {
   previousWidths: Record<string, number>;
 }
 
-/** Presets share one baseline, so switching modes never replaces the user's widths. */
-export function toggleColumnWidthPreset(
+/** Fit saves every width override so undo restores the exact previous layout. */
+export function toggleColumnFit(
   widths: Record<string, number>,
-  preset: ColumnWidthPresetState | null,
-  mode: ColumnWidthPreset,
-  presetWidths: Record<string, number>,
-): { widths: Record<string, number>; preset: ColumnWidthPresetState | null } {
-  if (preset?.mode === mode) return { widths: { ...preset.previousWidths }, preset: null };
+  fit: ColumnFitState | null,
+  fittedWidths: Record<string, number>,
+): { widths: Record<string, number>; fit: ColumnFitState | null } {
+  if (fit) return { widths: { ...fit.previousWidths }, fit: null };
   return {
-    widths: { ...widths, ...presetWidths },
-    preset: { mode, previousWidths: { ...(preset?.previousWidths ?? widths) } },
+    widths: { ...widths, ...fittedWidths },
+    fit: { previousWidths: { ...widths } },
   };
 }
 
 /** Leave room for header controls, while keeping a wide schema navigable. */
 export function initialColumnWidth(column: string, fontSize: number): number {
-  return Math.min(340, Math.max(COMPACT_COLUMN_WIDTH, Math.ceil(column.length * fontSize * 0.62 + 72)));
+  return Math.min(340, Math.max(DEFAULT_COLUMN_WIDTH, Math.ceil(column.length * fontSize * 0.62 + 72)));
 }
 
 /** Include the largest row label, cell padding and border at the row-number font. */
@@ -37,7 +34,7 @@ export function gridRowNumberWidth(totalRows: number, fontSize: number): number 
 
 export function fittedColumnWidth(headerWidth: number, sampleWidths: number[]): number {
   const measuredWidth = sampleWidths.reduce((width, sample) => Math.max(width, sample + 24), headerWidth + 72);
-  return Math.min(MAX_FITTED_COLUMN_WIDTH, Math.max(COMPACT_COLUMN_WIDTH, Math.ceil(measuredWidth)));
+  return Math.min(MAX_FITTED_COLUMN_WIDTH, Math.max(DEFAULT_COLUMN_WIDTH, Math.ceil(measuredWidth)));
 }
 
 export function moveGridCell(cell: GridCell | null, key: string, columns: string[], rowCount: number): GridCell | null {
