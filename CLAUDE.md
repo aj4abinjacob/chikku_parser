@@ -28,6 +28,8 @@ Development renderer builds use fast transpilation, lightweight source maps, and
 
 ## Release Process
 
+Current app version: `0.3.50`.
+
 Follow `RELEASE.md` whenever the user asks to publish a new tag. Always bump all app version files before tagging, run `npm run release:check -- vX.Y.Z` from the clean release commit, push the branch and tag, wait for the GitHub release workflow, and verify `latest.json` reports the new version, non-empty notes, and all supported platforms.
 
 ## Tauri Backend
