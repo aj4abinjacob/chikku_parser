@@ -4294,6 +4294,23 @@ html, body, #root {
   background: #d8e1e8;
 }
 
+.dg-toolbar-search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+
+  > .bp4-button { flex-shrink: 0; white-space: nowrap; }
+}
+
+.dg-view-toolbar-finding .dg-toolbar-search {
+  // Retain the Find bar's preferred 360px plus its divider and gap.
+  flex: 0 1 373px;
+}
+
 .dg-display-overflow { display: none; }
 .dg-view-toolbar-finding .dg-selection-hint {
   position: absolute;
@@ -20090,11 +20107,10 @@ html.dark-theme #root {
 .dg-find-bar {
   display: flex;
   align-items: center;
-  flex: 0 1 360px;
+  flex: 1 1 360px;
   gap: 2px;
   min-width: 0;
   height: 24px;
-  margin-left: auto;
   max-width: 380px;
 
   > .bp4-button { flex: 0 0 24px; min-width: 24px; padding: 5px; }

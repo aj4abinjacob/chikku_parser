@@ -1478,13 +1478,15 @@ export function DataGrid({
         <div className="dg-display-overflow"><Popover2 placement="bottom-start" minimal usePortal={false} popoverClassName="dg-display-options-popover" content={<div className="dg-display-options" role="group" aria-label="Table display options">{displayControls}</div>}>
           <Button small minimal icon="more" aria-label="Table display options" title="Table display options" />
         </Popover2></div>
-        <span className="dg-toolbar-separator" aria-hidden="true" />
-        {searchOpen && searchScope && !pivotMode
-          ? <TableFindBar term={find.term} onChange={find.changeTerm} status={find.status} loading={find.loading} canNavigate={find.canNavigate} onNavigate={find.navigate} onCancel={find.cancel} onClose={closeFind} />
-          : <Button small minimal className="dg-display-toggle" icon="search" text="Search" aria-label="Search" aria-expanded={false} aria-controls="dg-find-panel" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => setSearchOpen(true)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />}
         <span className="dg-selection-hint" aria-live="polite" title={activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell, then press Enter or double-click to inspect its full value"}>
           {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell to inspect"}
         </span>
+        <div className="dg-toolbar-search">
+          <span className="dg-toolbar-separator" aria-hidden="true" />
+          {searchOpen && searchScope && !pivotMode
+            ? <TableFindBar term={find.term} onChange={find.changeTerm} status={find.status} loading={find.loading} canNavigate={find.canNavigate} onNavigate={find.navigate} onCancel={find.cancel} onClose={closeFind} />
+            : <Button small minimal className="dg-display-toggle" icon="search" text="Search" aria-label="Search" aria-expanded={false} aria-controls="dg-find-panel" disabled={!searchScope || !!pivotMode || !columns.length} onClick={() => setSearchOpen(true)} title={pivotMode ? "Exit grouping to search the source table" : !columns.length ? "Show a column before searching" : "Search text in this table (Command / Control F)"} />}
+        </div>
       </div>
       <div className="data-grid-body">
         <div className="data-grid-scroll" ref={scrollRef}>
