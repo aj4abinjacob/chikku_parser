@@ -141,6 +141,7 @@ struct CellSchema {
     column_type: String,
     scalar_type: Option<ScalarType>,
     reason: Option<String>,
+    row_alias: String,
 }
 
 fn cell_schema(conn: &Connection, table: &str, column: &str) -> AppResult<CellSchema> {
@@ -152,6 +153,7 @@ fn cell_schema(conn: &Connection, table: &str, column: &str) -> AppResult<CellSc
     let mut rows = stmt.query([])?;
     let mut column_type = None;
     let mut has_rowid_column = false;
+    let mut column_names = Vec::new();
     while let Some(row) = rows.next()? {
         let name: String = row.get(0)?;
         if name.eq_ignore_ascii_case("rowid") {
@@ -160,6 +162,7 @@ fn cell_schema(conn: &Connection, table: &str, column: &str) -> AppResult<CellSc
         if name == column {
             column_type = Some(row.get::<_, String>(1)?);
         }
+        column_names.push(name);
     }
     let column_type = column_type.ok_or_else(|| {
         AppError::msg("This column is no longer available. Refresh the table and try again.")
@@ -182,10 +185,18 @@ fn cell_schema(conn: &Connection, table: &str, column: &str) -> AppResult<CellSc
     } else {
         None
     };
+    let mut row_alias = "__chikku_edit_source".to_string();
+    while column_names
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(&row_alias))
+    {
+        row_alias.push('_');
+    }
     Ok(CellSchema {
         column_type,
         scalar_type,
         reason,
+        row_alias,
     })
 }
 
@@ -405,16 +416,19 @@ fn history_sql(
     column_type: &str,
     old: Option<&str>,
     new: Option<&str>,
+    row_alias: &str,
+    row_fingerprint: &str,
 ) -> Vec<String> {
     let table_ident = identifier(table);
     let column_ident = identifier(column);
     let table_literal = literal(Some(table));
     let column_literal = literal(Some(column));
     let type_literal = literal(Some(column_type));
+    let row_alias = identifier(row_alias);
     // The first statement fails visibly on a changed schema, row or original value.
     // Each statement is replayable by the existing serial TableHistory executor.
     let guard = format!(
-        "SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_tables() WHERE table_name = {table_literal} AND schema_name = current_schema() AND (database_name = current_database() OR temporary) AND index_count = 0) = 1 AND NOT EXISTS (SELECT 1 FROM duckdb_columns() WHERE table_name = {table_literal} AND schema_name = current_schema() AND lower(column_name) = 'rowid') AND EXISTS (SELECT 1 FROM duckdb_columns() WHERE table_name = {table_literal} AND schema_name = current_schema() AND column_name = {column_literal} AND data_type = {type_literal}) AND (SELECT COUNT(*) FROM {table_ident} WHERE rowid = {rowid} AND encode(CAST({column_ident} AS VARCHAR)) IS NOT DISTINCT FROM encode({})) = 1 THEN true ELSE error('Cell edit history conflict: the source row, value or schema has changed.') END",
+        "SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_tables() WHERE table_name = {table_literal} AND schema_name = current_schema() AND (database_name = current_database() OR temporary) AND index_count = 0) = 1 AND NOT EXISTS (SELECT 1 FROM duckdb_columns() WHERE table_name = {table_literal} AND schema_name = current_schema() AND lower(column_name) = 'rowid') AND EXISTS (SELECT 1 FROM duckdb_columns() WHERE table_name = {table_literal} AND schema_name = current_schema() AND column_name = {column_literal} AND data_type = {type_literal}) AND (SELECT COUNT(*) FROM {table_ident} WHERE rowid = {rowid} AND encode(CAST({column_ident} AS VARCHAR)) IS NOT DISTINCT FROM encode({})) = 1 AND (SELECT CAST(hash({row_alias}) AS VARCHAR) FROM {table_ident} AS {row_alias} WHERE {row_alias}.rowid = {rowid}) = '{row_fingerprint}' THEN true ELSE error('Cell edit history conflict: the source row, value or schema has changed.') END",
         literal(old)
     );
     let update = format!(
@@ -464,6 +478,17 @@ fn apply_edit(
         schema.scalar_type.unwrap(),
         request.value.as_deref(),
     )?;
+    // A physical rowid alone is not an identity across a source-file re-import.
+    // Hash the one source row in DuckDB, including hidden columns, so replay
+    // rejects reordered non-identical records without copying rows to JS or
+    // allocating an identity column for the entire table. Engine-version hash
+    // changes conservatively produce a history conflict rather than a write.
+    let row_alias = identifier(&schema.row_alias);
+    let fingerprint: String = conn.query_row(
+        &format!("SELECT CAST(hash({row_alias}) AS VARCHAR) FROM {} AS {row_alias} WHERE {row_alias}.rowid = ?", identifier(&request.table_name)),
+        params![rowid],
+        |row| row.get(0),
+    )?;
     let statements = history_sql(
         &request.table_name,
         &request.column_name,
@@ -471,6 +496,8 @@ fn apply_edit(
         &schema.column_type,
         original.as_deref(),
         canonical.as_deref(),
+        &schema.row_alias,
+        &fingerprint,
     );
     let transaction = conn.unchecked_transaction().map_err(|_| {
         AppError::msg("The cell could not be edited while another transaction is open.")
@@ -766,6 +793,30 @@ mod tests {
     }
 
     #[test]
+    fn cell_edit_history_rejects_reordered_rows_with_the_same_edited_value() {
+        let setup = "CREATE TABLE data(id INTEGER, value VARCHAR, __chikku_edit_source VARCHAR, details INTEGER[]); INSERT INTO data VALUES (1, 'same', 'first', [1, 2]), (2, 'same', 'second', [3, 4])";
+        let (conn, state) = database(setup);
+        let edit = request(&conn, &state, "data", "value", "0", Some("corrected"));
+        let result = apply_edit(&conn, &state, &edit).unwrap();
+        let (replayed, replay_state) = database(setup);
+        replayed
+            .execute_batch("CREATE OR REPLACE TABLE data AS SELECT * FROM data ORDER BY id DESC")
+            .unwrap();
+        assert!(replay(&replayed, &result.sql_statements)
+            .unwrap_err()
+            .to_string()
+            .contains("history conflict"));
+        assert_eq!(
+            read(&replayed, &replay_state, "data", "value", "0")
+                .value
+                .as_deref(),
+            Some("same")
+        );
+        let (same_order, _) = database(setup);
+        replay(&same_order, &result.sql_statements).unwrap();
+    }
+
+    #[test]
     fn cell_edit_wide_integers_decimals_and_temporal_precision_remain_exact() {
         let setup = "CREATE TABLE data(big BIGINT, huge HUGEINT, unsigned UHUGEINT, amount DECIMAL(38,10), stamp TIMESTAMP_NS, zoned TIME WITH TIME ZONE); INSERT INTO data VALUES (9007199254740993, 170141183460469231731687303715884105726, 340282366920938463463374607431768211454, 1234567890123456789012345678.1234567890, '2025-02-03 12:34:56.123456789', '12:34:56.123456+05:30')";
         let (conn, state) = database(setup);
@@ -787,6 +838,7 @@ mod tests {
             ("unsigned", "340282366920938463463374607431768211455"),
             ("amount", "9876543210987654321098765432.9876543210"),
         ] {
+            let (conn, state) = database(setup);
             let edit = request(&conn, &state, "data", column, "0", Some(value));
             let result = apply_edit(&conn, &state, &edit).unwrap();
             assert_eq!(result.value.as_deref(), Some(value));
