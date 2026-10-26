@@ -44,6 +44,7 @@ Follow `RELEASE.md` whenever the user asks to publish a new tag. Always bump all
 | App entry | `src-tauri/src/main.rs` -> `lib.rs::run()` |
 | DuckDB session map | `src-tauri/src/db.rs` (per-window, keyed by Tauri window label) |
 | Table search | `src-tauri/src/table_search.rs` (`search_table`, `cancel_table_search`, per-window jobs, isolated connection and interrupt handle, 15-second timeout, 100-result limit) |
+| Cell editing | `src-tauri/src/cell_edit.rs` (`read_cell_value`, `apply_cell_edit`, exact text/null transport, typed validation, transactional updates and guarded history SQL) |
 | Tauri commands | `src-tauri/src/commands.rs` (load_file, query, exec, describe, tables, export_file, export_excel_multi, get_excel_sheets, free_memory, pattern CRUD, JSON/text/binary read/write, file_exists, file_stat, reveal_in_folder, open_new_window, close_db, take_pending_files) |
 | Excel | `src-tauri/src/excel.rs` (calamine reader -> temp CSV; rust_xlsxwriter writer) |
 | Regex patterns | `src-tauri/src/patterns.rs` (GitHub fetch with bundled fallback from `src-tauri/assets/regex-patterns.json`; user patterns in `dirs::data_dir()/chikku-parser/`) |
@@ -59,6 +60,7 @@ Multi-window model:
 - File-open events (`RunEvent::Opened` on macOS, `tauri-plugin-single-instance` argv callback on Linux/Windows) spawn a new app window and queue the paths via `PendingFiles`.
 - Renderer drains the queue on mount by calling `take_pending_files`.
 - `db.rs` serializes DuckDB values into JSON-safe canonical values: temporal values use ISO text, integers outside JavaScript's safe range and exact decimals use strings, and nested/list/map values stay structured. Grid SQL casts transport types such as wide DECIMAL and TIME WITH TIME ZONE to text where the Rust adapter cannot preserve them directly.
+- Cell editing addresses the source row's physical rowid, never its displayed position. Reads return exact VARCHAR representations; writes validate types and compare both the original value and a mutation revision. Generic exec/load commands and session closure invalidate revisions conservatively across windows. Indexed tables, views, shadowed rowid columns and unsupported types remain read-only. Editable values are limited to 1 MiB; cell edits never create table snapshots. The generic query API continues to be used only for SELECT queries by the application.
 
 External file changes:
 - `useExternalFileChange` (`src/hooks/useExternalFileChange.ts`) baselines the active file's mtime and size through the `file_stat` command and re-checks on window focus and visibility change — no watcher thread, no polling.

@@ -6,14 +6,31 @@ use parking_lot::Mutex;
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Per-window DuckDB session map. Keyed by Tauri window label.
 #[derive(Default)]
 pub struct DbState {
     pub sessions: Mutex<HashMap<String, Arc<Mutex<Connection>>>>,
+    // Global invalidation is intentionally conservative, including shared overview sessions.
+    mutation_epoch: AtomicU64,
 }
 
 impl DbState {
+    pub fn revision(&self) -> String {
+        self.mutation_epoch.load(Ordering::SeqCst).to_string()
+    }
+
+    pub fn invalidate_cell_edits(&self) {
+        self.mutation_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Invalidate before execution: even a failed batch can already have changed data.
+    pub fn exec_mutation(&self, conn: &Connection, sql: &str) -> AppResult<()> {
+        self.invalidate_cell_edits();
+        exec(conn, sql)
+    }
+
     pub fn open_for(&self, label: &str) -> AppResult<Arc<Mutex<Connection>>> {
         let mut map = self.sessions.lock();
         if let Some(c) = map.get(label) {
@@ -29,6 +46,7 @@ impl DbState {
     pub fn close_for(&self, label: &str) {
         let mut map = self.sessions.lock();
         if map.remove(label).is_some() {
+            self.invalidate_cell_edits();
             log::info!("DuckDB closed for window {}", label);
         }
     }

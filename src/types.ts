@@ -11,6 +11,8 @@ export interface DbApi {
   query: (sql: string) => Promise<any[]>;
   searchTable: (request: TableSearchRequest) => Promise<TableSearchResult>;
   cancelTableSearch: (requestId: number) => Promise<void>;
+  readCellValue: (request: ReadCellValueRequest) => Promise<ReadCellValueResult>;
+  applyCellEdit: (request: ApplyCellEditRequest) => Promise<ApplyCellEditResult>;
   exec: (sql: string) => Promise<boolean>;
   describe: (tableName: string) => Promise<any[]>;
   tables: () => Promise<any[]>;
@@ -58,6 +60,37 @@ export interface DbApi {
   releaseUpdateNotice: (version: string) => Promise<boolean>;
   installUpdate: (onProgress: (event: UpdateDownloadEvent) => void) => Promise<void>;
   restartApp: () => Promise<void>;
+}
+
+/** Values and row identities stay textual so JavaScript never rounds exact database values. */
+export const MAX_CELL_EDIT_BYTES = 1_048_576;
+
+export interface ReadCellValueRequest {
+  tableName: string;
+  columnName: string;
+  /** String representation of the chunk row's INTERNAL_ROW_ID_VALUE, never its displayed index. */
+  rowId: string;
+}
+
+export interface ReadCellValueResult {
+  value: string | null;
+  columnType: string;
+  editable: boolean;
+  reason: string | null;
+  revision: string;
+}
+
+export interface ApplyCellEditRequest extends ReadCellValueRequest {
+  expectedValue: string | null;
+  value: string | null;
+  revision: string;
+}
+
+export interface ApplyCellEditResult {
+  value: string | null;
+  columnType: string;
+  revision: string;
+  sqlStatements: string[];
 }
 
 export interface TableSearchRequest {

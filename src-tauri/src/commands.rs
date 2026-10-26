@@ -76,6 +76,7 @@ pub fn load_file(
 ) -> AppResult<LoadResult> {
     let arc = db_state.open_for(window.label())?;
     let conn = arc.lock();
+    db_state.invalidate_cell_edits();
     let safe = safe_table_name(&table_name);
     let opts = options.unwrap_or_default();
     let ext = Path::new(&file_path)
@@ -204,7 +205,7 @@ pub fn exec(
 ) -> AppResult<bool> {
     let arc = db_state.get(window.label())?;
     let conn = arc.lock();
-    db::exec(&conn, &sql)?;
+    db_state.exec_mutation(&conn, &sql)?;
     Ok(true)
 }
 

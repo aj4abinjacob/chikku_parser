@@ -74,6 +74,10 @@ function installTauriApi() {
 
     cancelTableSearch: (requestId) => invoke<void>("cancel_table_search", { requestId }),
 
+    readCellValue: (request) => invoke("read_cell_value", { request }),
+
+    applyCellEdit: (request) => invoke("apply_cell_edit", { request }),
+
     exec: (sql: string) => invoke("exec", { sql }),
 
     describe: (tableName: string) =>

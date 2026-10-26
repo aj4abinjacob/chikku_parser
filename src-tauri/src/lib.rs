@@ -1,4 +1,5 @@
 mod app_updates;
+mod cell_edit;
 mod commands;
 mod db;
 mod error;
@@ -11,6 +12,7 @@ mod window_mgr;
 
 use app_updates::*;
 use commands::*;
+use cell_edit::{apply_cell_edit, read_cell_value};
 use db::DbState;
 use link_preview::*;
 use menu::{sync_link_previews_enabled, MenuState};
@@ -89,6 +91,8 @@ pub fn run() {
             query,
             search_table,
             cancel_table_search,
+            read_cell_value,
+            apply_cell_edit,
             exec,
             describe,
             tables,
