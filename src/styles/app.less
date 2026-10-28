@@ -4464,11 +4464,12 @@ html, body, #root {
   width: min(680px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   margin: 24px 0;
-  overflow-y: auto;
+  overflow: hidden;
 
-  .bp4-heading {
-    min-width: 0;
-  }
+  .bp4-heading { min-width: 0; }
+  .bp4-dialog-body { min-height: 0; overflow-y: auto; max-height: calc(100vh - 210px); }
+  .bp4-dialog-header, .bp4-dialog-footer { flex-shrink: 0; }
+  &.dg-value-comparing { width: min(940px, calc(100vw - 32px)); }
 }
 
 .dg-value-context {
@@ -20139,3 +20140,27 @@ html.dark-theme #root {
   .dg-row .dg-find-current { background: #254c3b; box-shadow: inset 0 0 0 2px #72ca96; }
   .dg-find-current .dg-find-mark { background: #397655; color: #f3fff7; }
 }
+
+.dg-cell-metrics { margin: -4px 0 12px; font-size: 12px; color: #5c7080; }
+.dg-cell-options, .dg-cell-edit-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.dg-cell-options .bp4-control { margin: 0 8px 0 0; }
+.dg-cell-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.dg-cell-error { color: #c23030; overflow-wrap: anywhere; }
+.dg-cell-readonly { background: #f0f3f5; border-radius: 4px; padding: 8px 10px; }
+.dg-cell-whitespace { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; background: #f0f3f5; user-select: text; }
+.dg-cell-footer { flex-wrap: wrap; row-gap: 8px; }
+.dg-cell-history { margin-top: 14px; padding-top: 12px; border-top: 1px solid #d8e1e8; }
+.dg-cell-history > input { width: 100%; }
+.dg-cell-history-entry { padding: 10px 0; border-bottom: 1px solid #d8e1e8; }
+.dg-cell-history-entry time { display: block; color: #5c7080; margin-bottom: 6px; font-size: 12px; }
+.dg-cell-history-entry > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+.dg-cell-history-entry > div > span { min-width: 0; overflow-wrap: anywhere; }
+.dg-cell-history-entry code { white-space: pre-wrap; user-select: text; }
+.dg-cell-history-entry .bp4-button { flex-shrink: 0; }
+.bp4-dark {
+  .dg-cell-metrics, .dg-cell-history-entry time { color: @dark-text-3; }
+  .dg-cell-readonly, .dg-cell-whitespace { background: @dark-bg-3; }
+  .dg-cell-error { color: #ff7373; }
+  .dg-cell-history, .dg-cell-history-entry { border-color: @dark-border-1; }
+}
+@media (max-width: 520px) { .dg-cell-comparison { grid-template-columns: minmax(0, 1fr); } }

@@ -302,6 +302,21 @@ fn validate_temporal_precision(column_type: &str, value: &str) -> AppResult<()> 
         }
         return Ok(());
     }
+    if column_type != "TIME WITH TIME ZONE" && column_type != "TIMESTAMP WITH TIME ZONE" {
+        // DuckDB accepts an offset on unzoned TIME/TIMESTAMP and silently drops
+        // it. Inspect only the time portion so signed/BC dates remain valid.
+        let unzoned = value.strip_suffix(" (BC)").unwrap_or(value);
+        if let Some(time_start) = unzoned.find(':') {
+            if unzoned[time_start..]
+                .bytes()
+                .any(|byte| byte == b'+' || byte == b'-' || byte.is_ascii_alphabetic())
+            {
+                return Err(AppError::msg(format!(
+                    "{column_type} cannot store a time zone. Enter a value without an offset or zone."
+                )));
+            }
+        }
+    }
     let precision = match column_type {
         "TIMESTAMP_S" => 0,
         "TIMESTAMP_MS" => 3,
@@ -889,6 +904,62 @@ mod tests {
             apply_edit(&conn, &state, &edit).unwrap().value.as_deref(),
             Some("12.34")
         );
+    }
+
+    #[test]
+    fn cell_edit_rejects_timezone_loss_in_unzoned_temporal_columns() {
+        let (conn, state) = database("CREATE TABLE data(clock TIME, stamp TIMESTAMP, seconds TIMESTAMP_S, millis TIMESTAMP_MS, nanos TIMESTAMP_NS, zoned TIME WITH TIME ZONE); INSERT INTO data VALUES ('12:00:00', '2025-01-01 12:00:00', NULL, NULL, NULL, '12:00:00+05:30')");
+        // DuckDB accepts these casts while discarding their supplied offsets.
+        for (column_type, value) in [
+            ("TIME", "12:34:56+05:30"),
+            ("TIMESTAMP", "2025-01-01 12:34:56+05:30"),
+        ] {
+            let cast: String = conn
+                .query_row(
+                    &format!("SELECT CAST(CAST(? AS {column_type}) AS VARCHAR)"),
+                    params![value],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(!cast.contains("+05:30"));
+        }
+        for (column, value) in [
+            ("clock", "12:34:56+05:30"),
+            ("clock", "12:34:56-04"),
+            ("clock", "12:34:56Z"),
+            ("stamp", "2025-01-01 12:34:56+05:30"),
+            ("stamp", "2025-01-01T12:34:56Z"),
+            ("stamp", "2025-01-01 12:34:56 UTC"),
+            ("seconds", "2025-01-01 12:34:56+05:30"),
+            ("millis", "2025-01-01 12:34:56+05:30"),
+            ("nanos", "2025-01-01 12:34:56+05:30"),
+        ] {
+            let edit = request(&conn, &state, "data", column, "0", Some(value));
+            let revision = state.revision();
+            assert!(
+                apply_edit(&conn, &state, &edit)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("cannot store a time zone"),
+                "{column}: {value}"
+            );
+            assert_eq!(state.revision(), revision);
+            assert_eq!(
+                read(&conn, &state, "data", column, "0").value,
+                edit.expected_value
+            );
+        }
+        for (column, value) in [
+            ("clock", "12:34:56.123456"),
+            ("stamp", "0001-01-01 (BC) 12:34:56"),
+            ("zoned", "12:34:56+05:30"),
+        ] {
+            let edit = request(&conn, &state, "data", column, "0", Some(value));
+            assert_eq!(
+                apply_edit(&conn, &state, &edit).unwrap().value.as_deref(),
+                Some(value)
+            );
+        }
     }
 
     #[test]

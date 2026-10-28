@@ -529,7 +529,7 @@ export interface SavedView {
   updatedAt: number;
 }
 
-export type HistoryOpSource = "col_op" | "row_op" | "data_op";
+export type HistoryOpSource = "col_op" | "row_op" | "data_op" | "cell_edit";
 
 export interface HistoryEntry {
   id: number;

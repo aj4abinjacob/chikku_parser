@@ -29,12 +29,14 @@ const SOURCE_LABELS: Record<HistoryOpSource, string> = {
   col_op: "Column Op",
   row_op: "Row Op",
   data_op: "Data Op",
+  cell_edit: "Cell Edit",
 };
 
 const SOURCE_INTENTS: Record<HistoryOpSource, Intent> = {
   col_op: Intent.PRIMARY,
   row_op: Intent.SUCCESS,
   data_op: Intent.WARNING,
+  cell_edit: Intent.NONE,
 };
 
 function formatRelativeTime(timestamp: number): string {

@@ -9,6 +9,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { CELL_MUTATION_EVENT } from "./utils/cellEditor";
 import { recordSelfWrite } from "./utils/fileWatch";
 import type { AppUpdateInfo, DbApi, FileStat, LinkPreviewMetadata, OverviewWindowContext, TableSearchResult, UpdateDownloadEvent } from "./types";
 
@@ -57,13 +58,19 @@ const pdfImageFilter = [{
   extensions: ["apng", "avif", "bmp", "gif", "ico", "jpg", "jpeg", "png", "svg", "webp"],
 }];
 
+// Native mutation epochs advance even for failed attempts; invalidate targets before dispatch.
+function tableMutation<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  window.dispatchEvent(new CustomEvent(CELL_MUTATION_EVENT, { detail: { command, ...args } }));
+  return invoke<T>(command, args);
+}
+
 function installTauriApi() {
   const api: DbApi = {
     loadCSV: (filePath: string, tableName: string) =>
-      invoke("load_file", { filePath, tableName, options: null }),
+      tableMutation("load_file", { filePath, tableName, options: null }),
 
     loadFile: (filePath: string, tableName: string, options?: LoadOptions) =>
-      invoke("load_file", { filePath, tableName, options: options ?? null }),
+      tableMutation("load_file", { filePath, tableName, options: options ?? null }),
 
     getExcelSheets: (filePath: string) =>
       invoke("get_excel_sheets", { filePath }),
@@ -78,7 +85,7 @@ function installTauriApi() {
 
     applyCellEdit: (request) => invoke("apply_cell_edit", { request }),
 
-    exec: (sql: string) => invoke("exec", { sql }),
+    exec: (sql: string) => tableMutation("exec", { sql }),
 
     describe: (tableName: string) =>
       invoke("describe", { tableName }),

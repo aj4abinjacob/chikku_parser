@@ -70,7 +70,7 @@ const HELP_TOPICS: HelpTopic[] = [
         title: "What a reload replaces",
         items: [
           "JSON, Markdown, and PDF: unsaved edits in the workspace are replaced by the file on disk.",
-          "Tables: the file is imported again, so column ops, row ops, unsaved QC values, filters, and sorts on that file are cleared. Other files, including pivots and aggregates you generated, are untouched.",
+          "Tables: the file is imported again, so cell edits, column ops, row ops, unsaved QC values, filters, and sorts on that file are cleared. Other files, including pivots and aggregates you generated, are untouched.",
         ],
       },
       {
@@ -99,7 +99,19 @@ const HELP_TOPICS: HelpTopic[] = [
           "Use the sort button in a column header to sort. Shift-click the button to add another sort level.",
           "Drag column headers to reorder them, or drag a header edge to resize it. Fit columns sizes headers and loaded row samples, with a limit for long text. Click Fit columns again to restore your previous widths. Double-click a header edge to fit that column or restore its previous width.",
           "Select Wrap text above the grid for up to three lines per cell; select it again to return to one line. Use arrow keys to move the selected cell, and Shift+arrow keys to select a range.",
-          "Select a cell and choose Inspect value, press Enter, or double-click the cell to read and copy its complete raw value. The inspector shows the full column name, row number, and value type; nulls and empty strings are labeled separately.",
+          "Double-click a cell or select it and press Enter to read and copy its complete raw value, then choose Edit to open a draft. The dialog shows type, Unicode character count, UTF-8 byte size, and lines; NULL and empty strings are distinct.",
+        ],
+      },
+      {
+        title: "Edit a source cell",
+        items: [
+          "Choose Edit in the full-value dialog, change the draft, then Apply change or Cancel. Set NULL and Empty string are separate actions; empty strings are available for text columns. Show whitespace reveals spaces, tabs, and line endings without changing stored values. Compare original and draft shows both versions.",
+          "Undo/Redo, Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, and Ctrl+Y move through draft states. Closing, Escape, or quitting protects unapplied drafts with a discard prompt. Drafts are never exported.",
+          "Recent edits lists this physical cell’s before/after values. Filter by value or time, then choose Use this value to make a new draft for review and Apply. Later table transformations disable restores to old row identities.",
+          "Grouped, pivot, and aggregate cells, QC-controlled columns, views, indexed tables, shadowed rowid columns, and unsupported types stay read-only with a reason. Source-cell edits preserve exact decimal, wide-integer, and timestamp text and reject stale targets.",
+          "Apply changes the session table and leaves the viewer open, even if a filter or sort moves the row. Export file saves the applied table through the usual export dialog. Source files are untouched until export.",
+          "Values are limited to 1 MiB UTF-8. Draft history keeps 100 states / 8 MiB; recent edits keep 200 records / 8 MiB. Session cell-edit replay SQL keeps 2,000 entries / 20 MiB across all tables, accounting for UTF-8 and UTF-16 string storage. When full, export the table and History, then reopen the exported table before further edits; the draft is kept.",
+          "After a cell edit, old column/row Undo backups are cleared so they cannot erase the change. Main History keeps those earlier operations and the cell edit for guarded replay.",
         ],
       },
       {
@@ -226,7 +238,7 @@ const HELP_TOPICS: HelpTopic[] = [
       },
       {
         title: "Operation History",
-        body: "History records column, row, and data operations for each source table. Revert to the original file or a selected step by re-reading the source and replaying earlier operations. Generated tables do not support source-file revert.",
+        body: "History records column, row, data, and cell-edit operations for each source table. Cell replay checks the original row, value, and schema and fails visibly if they changed. Revert to the original file or a selected step by re-reading the source and replaying earlier operations. Generated tables do not support source-file revert.",
       },
       {
         title: "Move a recipe between sessions",
@@ -335,13 +347,15 @@ const HELP_TOPICS: HelpTopic[] = [
           "Cmd/Ctrl+Shift+O — Add files to the current session",
           "Cmd/Ctrl+E — Open tabular export",
           "Cmd/Ctrl+C — Copy selected grid cells as TSV",
+          "Enter or double-click — Inspect the selected cell, then Edit",
+          "Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z / Ctrl+Y — Undo / redo a cell draft",
           "Cmd/Ctrl+Shift+D — Toggle dark mode",
           "F1 — Open this Help Center",
         ],
       },
       {
         title: "Close the loop",
-        body: "QC changes are kept in the working table until you export them. If you close a window or quit with unsaved QC, Chikku Parser asks whether to save the complete file, discard the changes, or cancel. For JSON and Markdown, save or export when the sidebar shows Unsaved changes.",
+        body: "Applied cell and QC changes stay in the working table until you export them. Closing or quitting asks whether to save the complete file, discard changes, or cancel. Only exporting all rows and columns clears this protection. Removing an unexported table asks before discarding changes; unapplied cell drafts have their own discard prompt. For JSON and Markdown, save or export when the sidebar shows Unsaved changes.",
       },
     ],
   },

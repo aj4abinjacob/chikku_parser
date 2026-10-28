@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Button, ButtonGroup, Classes, Dialog, Icon } from "@blueprintjs/core";
+import { Button, ButtonGroup, Icon } from "@blueprintjs/core";
 import { Popover2 } from "@blueprintjs/popover2";
 import { SoftSelect } from "./SoftSelect";
 import { TableFindBar } from "./TableFindBar";
@@ -10,6 +10,7 @@ import { useGridRowWindow } from "../hooks/useGridRowWindow";
 import { SortColumn, PivotFlatRow, PivotGroupColumn, PivotGroupSortMode, PivotAggFunction, ColumnStats, ColumnStatsUniqueValue, ColOpStep, ColOpType, UndoStrategy, QcSession, INTERNAL_ROW_ID_VALUE, LinkPreviewMetadata } from "../types";
 import { getEnabledLinkPreviewTarget } from "../utils/linkPreview";
 import { buildCellRange, cellKey, getSelectionText } from "../utils/gridSelection";
+import { CellInspection } from "../utils/cellEditor";
 import { DEFAULT_COLUMN_WIDTH, ColumnFitState, fittedColumnWidth, gridEmptyState, gridRowNumberWidth, initialColumnWidth, moveGridCell, rawCellValue, toggleColumnFit } from "../utils/gridUX";
 
 /** React escapes all original cell text; matching never changes values or copy data. */
@@ -141,6 +142,10 @@ interface DataGridProps {
   onShowColumns?: () => void;
   linkPreviewsEnabled?: boolean;
   searchScope?: TableSearchScope;
+  cellEditContext?: number;
+  cellRevealRequest?: { key: number; row: number; tableName: string };
+  onCellRevealAccepted?: (key: number) => void;
+  onInspectCell?: (cell: CellInspection) => void;
 }
 
 export function DataGrid({
@@ -191,6 +196,10 @@ export function DataGrid({
   onShowColumns,
   linkPreviewsEnabled = true,
   searchScope,
+  cellEditContext = 0,
+  cellRevealRequest,
+  onCellRevealAccepted,
+  onInspectCell,
 }: DataGridProps): React.ReactElement {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<{ row: number; col: string } | null>(null);
@@ -198,8 +207,6 @@ export function DataGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [wrapText, setWrapText] = useState(false);
   const [activeCell, setActiveCell] = useState<{ row: number; col: string } | null>(null);
-  const [inspectedCell, setInspectedCell] = useState<{ row: number; column: string; text: string; kind: string } | null>(null);
-  const [inspectorCopyStatus, setInspectorCopyStatus] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchContextKey = tableSearchContextKey(searchScope, columns, resetKey, !!pivotMode) + JSON.stringify(sortColumns);
   useEffect(() => { setSearchOpen(false); }, [searchContextKey]);
@@ -639,7 +646,6 @@ export function DataGrid({
   useEffect(() => {
     setSelected(new Set());
     setActiveCell(null);
-    setInspectedCell(null);
     anchor.current = null;
     rangeRef.current = null; // force ensureRange to re-fire
   }, [rowWindowContext]);
@@ -1111,6 +1117,8 @@ export function DataGrid({
   const inspectCell = useCallback((cell: { row: number; col: string } | null) => {
     if (!cell) return;
     let value: unknown;
+    let physicalRowId: string | null = null;
+    let readOnlyReason: string | null = pivotMode ? "Grouped, pivot and aggregate cells are read-only. Exit grouping to edit a source cell." : null;
     let column = cell.col === PIVOT_GROUP_COL_KEY ? "Group By" : cell.col;
     let aggregateLabel: string | null = null;
     if (pivotMode && pivotFlatRows) {
@@ -1127,6 +1135,9 @@ export function DataGrid({
       value = row[cell.col];
       // Inspect staged QC edits rather than the previous committed value.
       const rowId = row[INTERNAL_ROW_ID_VALUE];
+      physicalRowId = rowId == null ? null : String(rowId);
+      if (physicalRowId === null) readOnlyReason = "The source row is unavailable. Reload the view before editing.";
+      if (qcSession && (cell.col === qcSession.columnName || cell.col === qcSession.notesColumnName)) readOnlyReason = "This column is controlled by QC. Use the QC controls to change its values.";
       if (qcSession && !qcSession.done && rowId != null) {
         const stagedValue = qcSession.valuesByRowId[String(rowId)];
         const stagedNote = qcSession.notesByRowId[String(rowId)];
@@ -1137,14 +1148,14 @@ export function DataGrid({
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
     setTooltip(null);
     setCellLinkPreview(null);
-    setInspectorCopyStatus("");
     const raw = rawCellValue(value);
     const columnType = aggregateLabel ? undefined : columnTypes?.get(column);
     // Transport may encode BIGINT/DECIMAL as strings to retain precision.
     const isBlank = value == null || value === "";
     const kind = aggregateLabel ? `${aggregateLabel} result · ${raw.kind}` : columnType ? `${columnType}${isBlank ? ` · ${raw.kind}` : ""}` : raw.kind;
-    setInspectedCell({ row: cell.row, column, ...raw, kind });
-  }, [getRow, pivotMode, pivotFlatRows, qcSession, columnTypes, pivotAggLabelFor]);
+    if (!viewContextKey || !onInspectCell) return;
+    onInspectCell({ tableName: viewContextKey, columnName: column, rowId: physicalRowId, row: cell.row, cachedValue: value === null ? null : raw.text, columnType: columnType ?? kind, reason: readOnlyReason, context: cellEditContext });
+  }, [getRow, pivotMode, pivotFlatRows, qcSession, columnTypes, pivotAggLabelFor, viewContextKey, onInspectCell, cellEditContext]);
 
   // Central row navigation hook: the bounded virtual-window layer can map this
   // logical row to a physical scroll offset without changing Find's contract.
@@ -1152,6 +1163,15 @@ export function DataGrid({
     ensureRange(row, row);
     scrollToLogicalRow(row);
   }, [ensureRange, scrollToLogicalRow]);
+
+  const lastCellRevealKey = useRef<number | null>(null);
+  useEffect(() => {
+    if (!cellRevealRequest || cellRevealRequest.tableName !== viewContextKey || lastCellRevealKey.current === cellRevealRequest.key) return;
+    lastCellRevealKey.current = cellRevealRequest.key;
+    // Keep the surrounding position without selecting a different record after a sort/filter move.
+    navigateToRow(cellRevealRequest.row);
+    onCellRevealAccepted?.(cellRevealRequest.key);
+  }, [cellRevealRequest, viewContextKey, navigateToRow, onCellRevealAccepted]);
 
   const lastRowHeight = useRef(rowHeight);
   useLayoutEffect(() => {
@@ -1453,9 +1473,6 @@ export function DataGrid({
     <div className="dg-display-group" role="group" aria-label="Text layout">
       <Button small minimal className="dg-display-toggle dg-wrap-toggle" icon="new-text-box" text="Wrap text" aria-label="Wrap text" active={wrapText} aria-pressed={wrapText} onClick={() => setWrapText(value => !value)} title={wrapText ? "Turn wrapping off and return to single-line cells" : "Show up to three lines per cell. Click again for single-line cells"} />
     </div>
-    <div className="dg-display-group" role="group" aria-label="Cell inspection">
-      <Button small minimal className="dg-display-toggle" icon="eye-open" text="Inspect value" aria-label="Inspect value" active={inspectedCell !== null} aria-expanded={inspectedCell !== null} aria-haspopup="dialog" disabled={!activeCell} onClick={() => inspectedCell ? setInspectedCell(null) : inspectCell(activeCell)} title={inspectedCell ? "Close full cell value" : "Open the selected cell's full value (Enter or double-click)"} />
-    </div>
   </>;
 
   return (
@@ -1479,7 +1496,7 @@ export function DataGrid({
           <Button small minimal icon="more" aria-label="Table display options" title="Table display options" />
         </Popover2></div>
         <span className="dg-selection-hint" aria-live="polite" title={activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell, then press Enter or double-click to inspect its full value"}>
-          {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col}` : "Select a cell to inspect"}
+          {activeCell ? `Row ${activeCell.row + 1} · ${activeCell.col === PIVOT_GROUP_COL_KEY ? "Group By" : activeCell.col} · Enter to inspect/edit` : "Double-click a cell or press Enter to inspect/edit"}
         </span>
         <div className="dg-toolbar-search">
           <span className="dg-toolbar-separator" aria-hidden="true" />
@@ -2006,41 +2023,6 @@ export function DataGrid({
           />
         )}
       </div>
-      <Dialog
-        isOpen={inspectedCell !== null}
-        onClose={() => setInspectedCell(null)}
-        title="Full cell value"
-        icon="eye-open"
-        className="dg-value-dialog"
-        canOutsideClickClose
-      >
-        {inspectedCell && <>
-          <div className={Classes.DIALOG_BODY}>
-            <dl className="dg-value-context">
-              <div><dt>Column</dt><dd>{inspectedCell.column}</dd></div>
-              <div><dt>Row</dt><dd>{inspectedCell.row + 1}</dd></div>
-              <div><dt>Value type</dt><dd>{inspectedCell.kind}</dd></div>
-            </dl>
-            <label className="dg-value-label" htmlFor="dg-inspected-value">Raw value</label>
-            <textarea id="dg-inspected-value" className="bp4-input dg-value-text" readOnly value={inspectedCell.text} placeholder={inspectedCell.kind.includes("Empty string") ? "Empty string" : undefined} spellCheck={false} />
-            <p className="dg-value-note">This is the complete stored value, before display formatting.</p>
-            <div className="dg-value-copy-status" role="status">{inspectorCopyStatus}</div>
-          </div>
-          <div className={Classes.DIALOG_FOOTER}>
-            <div className={Classes.DIALOG_FOOTER_ACTIONS}>
-              <Button icon="clipboard" text="Copy raw value" onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(inspectedCell.text);
-                  setInspectorCopyStatus(inspectedCell.kind.includes("Empty string") ? "Empty string copied." : "Raw value copied.");
-                } catch {
-                  setInspectorCopyStatus("Could not copy. Select the raw value and copy it manually.");
-                }
-              }} />
-              <Button text="Close" onClick={() => setInspectedCell(null)} />
-            </div>
-          </div>
-        </>}
-      </Dialog>
       {tooltip && (
         <div
           ref={tooltipRef}

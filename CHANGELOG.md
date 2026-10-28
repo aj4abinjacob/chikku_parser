@@ -1,5 +1,15 @@
 # Changelog
 
+## Chikku Parser v0.3.51
+
+### Cell inspection and editing
+
+- Inspect full cell values and edit supported source cells with draft undo and redo, value comparison, and explicit NULL and empty-string controls.
+- Track applied edits in cell and table history, with safeguards against stale rows and accidental loss of unexported changes.
+- Improved table display controls, search placement, and in-app guidance for editing.
+
+**Full changelog:** https://github.com/aj4abinjacob/chikku_parser/compare/v0.3.50...v0.3.51
+
 ## Chikku Parser v0.3.46
 
 ### PDF Viewer

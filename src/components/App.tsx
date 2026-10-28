@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Button, Classes, Dialog, Icon, Intent, Tag } from "@blueprintjs/core";
+import { Alert, Button, Classes, Dialog, Icon, Intent, Tag } from "@blueprintjs/core";
 import { getCurrentWindow, type DragDropEvent } from "@tauri-apps/api/window";
-import { LoadedTable, ViewState, ColumnInfo, FilterGroup, FilterNode, SheetInfo, hasActiveFilters, countConditions, isFilterGroup, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, PivotAggFunction, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions, ColumnStats, ColumnStatsUniqueValue, ComparisonViewConfig, DocumentWorkspaceFileActions, QcCreateConfig, QcOptionSortMode, QcSession, QcValueType, DatasetOverview, ColumnStatsTopValue } from "../types";
+import { LoadedTable, ViewState, ColumnInfo, FilterGroup, FilterNode, SheetInfo, hasActiveFilters, countConditions, isFilterGroup, ColOpType, ColOpStep, RowOpType, RowOpStep, UndoStrategy, PivotAggFunction, SavedView, TableHistory, TableSourceInfo, HistoryEntry, HistoryOpSource, HistoryExportData, ImportOptions, ColumnStats, ColumnStatsUniqueValue, ComparisonViewConfig, DocumentWorkspaceFileActions, QcCreateConfig, QcOptionSortMode, QcSession, QcValueType, DatasetOverview, ColumnStatsTopValue, ApplyCellEditRequest, ReadCellValueResult, MAX_CELL_EDIT_BYTES } from "../types";
 import { Sidebar } from "./Sidebar";
 import { Toolbar } from "./Toolbar";
 import { WorkbenchTab, WorkbenchRequest, WorkbenchHeights } from "../utils/workbenchPanel";
 import { DataGrid } from "./DataGrid";
+import { CellValueDialog } from "./CellValueDialog";
+import { appendRecentEdit, assertCellHistoryBudget, CELL_MUTATION_EVENT, CellInspection, RecentCellEdit, valueBytes } from "../utils/cellEditor";
 import { ComparisonView, createDefaultComparisonConfig } from "./ComparisonView";
 import { FilterPanel } from "./FilterPanel";
 import { StatusBar } from "./StatusBar";
@@ -498,6 +500,22 @@ export function App(): React.ReactElement {
   const [documentFileActions, setDocumentFileActions] = useState<DocumentWorkspaceFileActions | null>(null);
   const [qcSessions, setQcSessions] = useState<Record<string, QcSession>>({});
   const [qcDirtyTables, setQcDirtyTables] = useState<Set<string>>(() => new Set());
+  const [inspectedCell, setInspectedCell] = useState<CellInspection | null>(null);
+  const inspectedCellRef = useRef(inspectedCell); inspectedCellRef.current = inspectedCell;
+  const [cellRevealRequest, setCellRevealRequest] = useState<{ key: number; row: number; tableName: string } | undefined>();
+  const cellRevealKeyRef = useRef(0);
+  const [cellEditContext, setCellEditContext] = useState(0);
+  const cellEditContextRef = useRef(0);
+  const [recentCellEdits, setRecentCellEdits] = useState<RecentCellEdit[]>([]);
+  const recentCellIdRef = useRef(0);
+  const lastCellRevisionRef = useRef<string | null>(null);
+  const cellCleanupSqlRef = useRef(new Set<string>());
+  const cellApplyBusyRef = useRef(false);
+  const editorCloseGuardRef = useRef<(() => Promise<boolean>) | null>(null);
+  const editorDirtyRef = useRef(false);
+  const editorBusyRef = useRef(false);
+  const [editorProtection, setEditorProtection] = useState(false);
+  const [pendingTableRemoval, setPendingTableRemoval] = useState<string | null>(null);
   const [qcQuitPromptOpen, setQcQuitPromptOpen] = useState(false);
   const [closeAfterQcExport, setCloseAfterQcExport] = useState(false);
   const filterPanelExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -509,6 +527,11 @@ export function App(): React.ReactElement {
   activeTableRef.current = activeTable;
   const tableHistoriesRef = useRef(tableHistories);
   tableHistoriesRef.current = tableHistories;
+  const updateTableHistories = useCallback((updater: (previous: Map<string, TableHistory>) => Map<string, TableHistory>) => {
+    const next = updater(tableHistoriesRef.current);
+    tableHistoriesRef.current = next;
+    setTableHistories(next);
+  }, []);
   const colOpsStepsRef = useRef(colOpsSteps);
   colOpsStepsRef.current = colOpsSteps;
   const rowOpsStepsRef = useRef(rowOpsSteps);
@@ -817,7 +840,7 @@ export function App(): React.ReactElement {
       entries: [],
       nextEntryId: 1,
     };
-    setTableHistories((prev) => {
+    updateTableHistories((prev) => {
       const next = new Map(prev);
       next.set(table.tableName, history);
       return next;
@@ -901,7 +924,7 @@ export function App(): React.ReactElement {
         }
         return next;
       });
-      setTableHistories((prev) => {
+      updateTableHistories((prev) => {
         const next = replace ? new Map<string, TableHistory>() : new Map(prev);
         for (const table of newTables) {
           if (!next.has(table.tableName)) {
@@ -927,27 +950,100 @@ export function App(): React.ReactElement {
 
   const recordHistoryEntry = useCallback(
     (tableName: string, source: HistoryOpSource, description: string, sqlStatements: string[]) => {
-      setTableHistories((prev) => {
-        const history = prev.get(tableName);
-        if (!history) return prev;
-        const entry: HistoryEntry = {
-          id: history.nextEntryId,
-          source,
-          description,
-          timestamp: Date.now(),
-          sqlStatements,
-        };
-        const next = new Map(prev);
-        next.set(tableName, {
-          ...history,
-          entries: [...history.entries, entry],
-          nextEntryId: history.nextEntryId + 1,
-        });
+      updateTableHistories((previous) => {
+        const history = previous.get(tableName);
+        if (!history) return previous;
+        const entry: HistoryEntry = { id: history.nextEntryId, source, description, timestamp: Date.now(), sqlStatements };
+        const next = new Map(previous);
+        next.set(tableName, { ...history, entries: [...history.entries, entry], nextEntryId: history.nextEntryId + 1 });
         return next;
       });
     },
-    []
+    [updateTableHistories]
   );
+
+  const registerEditorGuard = useCallback((guard: (() => Promise<boolean>) | null) => { editorCloseGuardRef.current = guard; }, []);
+  const handleTableExport = useCallback(async () => {
+    if (editorCloseGuardRef.current && !await editorCloseGuardRef.current()) return;
+    setInspectedCell(null);
+    setExportDialogOpen(true);
+  }, []);
+  const handleCellRevealAccepted = useCallback((key: number) => {
+    setCellRevealRequest((request) => request?.key === key ? undefined : request);
+  }, []);
+  const handleEditorState = useCallback((dirty: boolean, busy: boolean) => {
+    editorDirtyRef.current = dirty; editorBusyRef.current = busy; setEditorProtection(dirty || busy);
+    if (isTauri()) void window.api.setQcDirty(dirty || busy || qcDirtyTablesRef.current.size > 0);
+  }, []);
+  const invalidateCellTargets = useCallback(() => {
+    cellEditContextRef.current++;
+    setCellEditContext(cellEditContextRef.current);
+    lastCellRevisionRef.current = null;
+    setRecentCellEdits((records) => records.map((record) => record.restorable ? { ...record, restorable: false } : record));
+  }, []);
+  useEffect(() => {
+    const onMutation = (event: Event) => {
+      const detail = (event as CustomEvent<{ command: string; sql?: string }>).detail;
+      // Suppress only the exact obsolete-backup drops issued by this Apply.
+      if (detail.command === "exec" && detail.sql && cellCleanupSqlRef.current.has(detail.sql)) return;
+      invalidateCellTargets();
+    };
+    window.addEventListener(CELL_MUTATION_EVENT, onMutation);
+    return () => window.removeEventListener(CELL_MUTATION_EVENT, onMutation);
+  }, [invalidateCellTargets]);
+  const isCellTargetCurrent = useCallback((target: CellInspection) => target.context === cellEditContextRef.current && target.tableName === activeTableRef.current, []);
+  const handleCellRevision = useCallback((revision: string) => {
+    if (lastCellRevisionRef.current !== null && lastCellRevisionRef.current !== revision) {
+      setRecentCellEdits((records) => records.map((record) => ({ ...record, restorable: false })));
+    }
+    lastCellRevisionRef.current = revision;
+  }, []);
+  const handleCellApply = useCallback(async (request: ApplyCellEditRequest, columnType: string): Promise<ReadCellValueResult> => {
+    if (cellApplyBusyRef.current) throw new Error("A cell change is already being applied.");
+    if (request.tableName !== activeTableRef.current || !tablesRef.current.some((table) => table.tableName === request.tableName)) throw new Error("The active table changed. Reopen the cell before editing.");
+    if (valueBytes(request.value) > MAX_CELL_EDIT_BYTES) throw new Error("Cell edits are limited to 1 MiB of UTF-8 text.");
+    if (!tableHistoriesRef.current.has(request.tableName)) throw new Error("No session history exists for this table. Reopen the file before editing.");
+    assertCellHistoryBudget(tableHistoriesRef.current.values(), request, columnType);
+    cellApplyBusyRef.current = true;
+    const context = cellEditContextRef.current;
+    const openedCell = inspectedCellRef.current;
+    try {
+      const result = await window.api.applyCellEdit(request);
+      // A successful native write must always be dirty, replayable and visible, even if cleanup fails.
+      markQcTableDirty(request.tableName);
+      recordHistoryEntry(request.tableName, "cell_edit", `Edit "${request.columnName}" cell`, result.sqlStatements);
+      setRecentCellEdits((records) => appendRecentEdit(records, { id: ++recentCellIdRef.current, tableName: request.tableName, columnName: request.columnName, rowId: request.rowId, timestamp: Date.now(), before: request.expectedValue, after: result.value, context, restorable: context === cellEditContextRef.current }));
+      setDataVersion((version) => version + 1);
+      setResetKey((key) => key + 1);
+      if (openedCell && openedCell.tableName === request.tableName && openedCell.columnName === request.columnName && openedCell.rowId === request.rowId) setCellRevealRequest({ key: ++cellRevealKeyRef.current, row: openedCell.row, tableName: request.tableName });
+      lastCellRevisionRef.current = result.revision;
+      const backups = new Set([
+        ...colOpsStepsRef.current.map((step) => step.backupTable),
+        ...rowOpsStepsRef.current.map((step) => step.backupTable),
+        `__colops_snapshot_${request.tableName}`, `__rowops_snapshot_${request.tableName}`,
+      ].filter(Boolean) as string[]);
+      // Reset first so no old whole-table Undo can erase the committed cell value.
+      colOpsStepsRef.current = []; rowOpsStepsRef.current = [];
+      setColOpsSteps([]); setUndoStrategy("per-step"); setColOpsNextId(1);
+      setRowOpsSteps([]); setRowOpsUndoStrategy("per-step"); setRowOpsNextId(1);
+      let cleanupError = false;
+      for (const backup of backups) {
+        const sql = `DROP TABLE IF EXISTS ${escapeIdent(backup)}`;
+        cellCleanupSqlRef.current.add(sql);
+        try { await window.api.exec(sql); } catch (err) { cleanupError = true; console.warn("Cell edit backup cleanup failed", err); }
+        finally { cellCleanupSqlRef.current.delete(sql); }
+      }
+      try {
+        const descriptor = await window.api.readCellValue({ tableName: request.tableName, columnName: request.columnName, rowId: request.rowId });
+        lastCellRevisionRef.current = descriptor.revision;
+        // Preserve the committed value if a later mutation made this row unreadable.
+        return { ...descriptor, value: descriptor.editable ? descriptor.value : result.value, editable: descriptor.editable && !cleanupError, reason: cleanupError ? "Change applied. Some obsolete backups could not be removed; reopen this cell before editing again." : descriptor.reason };
+      } catch (err) {
+        console.warn("Cell edit descriptor refresh failed", err);
+        return { ...result, editable: false, reason: "Change applied. The cell could not be refreshed; close and reopen it before editing again." };
+      }
+    } finally { cellApplyBusyRef.current = false; }
+  }, [markQcTableDirty, recordHistoryEntry]);
 
   // Load a single file into DuckDB (handles all formats)
   const loadSingleFile = useCallback(
@@ -1377,7 +1473,7 @@ export function App(): React.ReactElement {
         ? tablesRef.current.find((table) => table.tableName === currentTableName)
         : null;
       if (currentTable && isDocumentWorkspaceFilePath(currentTable.filePath)) return;
-      setExportDialogOpen(true);
+      void handleTableExport();
     });
     window.api.onSetDarkMode((isDark) => {
       setDarkMode(isDark);
@@ -1388,21 +1484,21 @@ export function App(): React.ReactElement {
       localStorage.setItem(LINK_PREVIEWS_STORAGE_KEY, String(enabled));
     });
     window.api.onRequestQuit(() => {
-      quitEntireAppRef.current = true;
-      if (qcDirtyTablesRef.current.size === 0) {
-        void window.api.setQcDirty(false).then(() => window.api.requestAppQuit());
-        return;
-      }
-      setQcQuitPromptOpen(true);
+      void (async () => {
+        if (editorCloseGuardRef.current && !await editorCloseGuardRef.current()) return;
+        quitEntireAppRef.current = true;
+        if (qcDirtyTablesRef.current.size === 0) { await window.api.setQcDirty(false); await window.api.requestAppQuit(); return; }
+        setQcQuitPromptOpen(true);
+      })();
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isTauri()) return;
     void window.api
-      .setQcDirty(qcDirtyTables.size > 0)
+      .setQcDirty(qcDirtyTables.size > 0 || editorProtection)
       .catch((err) => console.warn("Failed to sync QC save state", err));
-  }, [qcDirtyTables]);
+  }, [qcDirtyTables, editorProtection]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -1415,10 +1511,14 @@ export function App(): React.ReactElement {
           allowWindowCloseRef.current = false;
           return;
         }
-        if (qcDirtyTablesRef.current.size === 0) return;
+        if (qcDirtyTablesRef.current.size === 0 && !editorDirtyRef.current && !editorBusyRef.current) return;
         event.preventDefault();
-        quitEntireAppRef.current = false;
-        setQcQuitPromptOpen(true);
+        void (async () => {
+          if (editorCloseGuardRef.current && !await editorCloseGuardRef.current()) return;
+          quitEntireAppRef.current = false;
+          if (qcDirtyTablesRef.current.size > 0) setQcQuitPromptOpen(true);
+          else { allowWindowCloseRef.current = true; await window.api.setQcDirty(false); await getCurrentWindow().close(); }
+        })();
       })
       .then((cleanup) => {
         if (disposed) {
@@ -1595,7 +1695,7 @@ export function App(): React.ReactElement {
   }, [activeTable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Delete a table from DuckDB and state
-  const handleDeleteTable = useCallback(async (tableName: string) => {
+  const performDeleteTable = useCallback(async (tableName: string) => {
     try {
       await window.api.exec(`DROP TABLE IF EXISTS "${tableName}"`);
     } catch (err) {
@@ -1608,7 +1708,7 @@ export function App(): React.ReactElement {
     tableViewsRef.current.delete(tableName);
     if (activeTableRef.current === tableName) activateTable(remaining[0]?.tableName ?? null);
     // Remove history for the deleted table
-    setTableHistories((prev) => {
+    updateTableHistories((prev) => {
       const next = new Map(prev);
       next.delete(tableName);
       return next;
@@ -1625,6 +1725,12 @@ export function App(): React.ReactElement {
       return next;
     });
   }, [activateTable]);
+
+  const handleDeleteTable = useCallback(async (tableName: string) => {
+    if (editorCloseGuardRef.current && !await editorCloseGuardRef.current()) return;
+    if (qcDirtyTablesRef.current.has(tableName)) { setPendingTableRemoval(tableName); return; }
+    await performDeleteTable(tableName);
+  }, [performDeleteTable]);
 
   // Open the column mapping dialog with selected tables
   const handleCombineOpen = useCallback((selectedNames: string[]) => {
@@ -2809,7 +2915,7 @@ export function App(): React.ReactElement {
 
       // Trim history entries after the revert point, update timestamps to now
       const now = Date.now();
-      setTableHistories((prev) => {
+      updateTableHistories((prev) => {
         const h = prev.get(tableName);
         if (!h) return prev;
         const next = new Map(prev);
@@ -2877,7 +2983,7 @@ export function App(): React.ReactElement {
     let merged = 0;
     let skipped = 0;
 
-    setTableHistories((prev) => {
+    updateTableHistories((prev) => {
       const next = new Map(prev);
       for (const th of imported.tables) {
         if (currentTableNames.has(th.tableName)) {
@@ -2975,7 +3081,7 @@ export function App(): React.ReactElement {
   const activeFileReloadWarning = documentWorkspaceActive
     ? (documentFileActions?.isDirty ? "Your unsaved edits will be replaced." : null)
     : (colOpsSteps.length > 0 || rowOpsSteps.length > 0 || (activeTable ? qcDirtyTables.has(activeTable) : false)
-      ? "Re-importing discards column ops, row ops, and QC values on this table."
+      ? "Re-importing discards cell edits, column ops, row ops, and QC changes on this table."
       : null);
   const fileDragClass = fileDragState === "idle" ? "" : ` file-drag-${fileDragState}`;
   const usesMacTitlebarOverlay = isTauri()
@@ -3172,7 +3278,7 @@ export function App(): React.ReactElement {
                       onCreatePivotTable={handleCreatePivotTable}
                       onLookupMerge={handleLookupMerge}
                       onCompareTables={handleStartComparison}
-                      onExport={() => setExportDialogOpen(true)}
+                      onExport={() => { void handleTableExport(); }}
                       onOpenHistory={() => setHistoryDialogOpen(true)}
                       onOpenOverview={handleOpenDatasetOverview}
                     />
@@ -3199,6 +3305,10 @@ export function App(): React.ReactElement {
                     />
                   )}
                   <DataGrid
+                    cellEditContext={cellEditContext}
+                    cellRevealRequest={cellRevealRequest}
+                    onCellRevealAccepted={handleCellRevealAccepted}
+                    onInspectCell={setInspectedCell}
                     totalRows={pivotActive ? pivotFlatRows.length : totalRows}
                     getRow={pivotActive ? () => null : getRow}
                     ensureRange={pivotActive ? pivotEnsureRange : ensureRange}
@@ -3397,6 +3507,8 @@ export function App(): React.ReactElement {
         onClose={() => setCombineDialogOpen(false)}
         onCombine={handleCombineExecute}
       />
+      {inspectedCell && <CellValueDialog key={`${inspectedCell.tableName}:${inspectedCell.columnName}:${inspectedCell.rowId}:${inspectedCell.row}`} target={inspectedCell} context={cellEditContext} activeTable={activeTable} recentEdits={recentCellEdits} onClose={() => setInspectedCell(null)} onApply={handleCellApply} onNativeRevision={handleCellRevision} isTargetCurrent={isCellTargetCurrent} onRegisterGuard={registerEditorGuard} onEditorState={handleEditorState} onExport={() => setExportDialogOpen(true)} />}
+      <Alert isOpen={pendingTableRemoval !== null} intent={Intent.WARNING} icon="warning-sign" confirmButtonText="Remove table" cancelButtonText="Cancel" onCancel={() => setPendingTableRemoval(null)} onConfirm={() => { const tableName = pendingTableRemoval; setPendingTableRemoval(null); if (tableName) void performDeleteTable(tableName); }}><p>This table has changes that have not been exported. Removing it discards those changes. Export the table first to save them.</p></Alert>
       <HelpCenter
         isOpen={helpCenterOpen}
         onClose={() => setHelpCenterOpen(false)}
@@ -3414,14 +3526,14 @@ export function App(): React.ReactElement {
       <Dialog
         isOpen={qcQuitPromptOpen}
         onClose={handleCancelQcQuit}
-        title="Save QC changes?"
+        title="Save table changes?"
         style={{ width: 460 }}
       >
         <div className={Classes.DIALOG_BODY}>
           <p>
             {dirtyQcFileNames.length === 1
-              ? `Your QC changes to “${dirtyQcFileNames[0]}” have not been saved to a file.`
-              : `${dirtyQcFileNames.length} files have QC changes that have not been saved.`}
+              ? `Your changes to “${dirtyQcFileNames[0]}” have not been saved to a file.`
+              : `${dirtyQcFileNames.length} files have table changes that have not been saved.`}
           </p>
           <p>Save before {quitEntireAppRef.current ? "quitting" : "closing this window"}?</p>
         </div>
